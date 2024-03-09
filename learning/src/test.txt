@@ -1,0 +1,11 @@
+In Rust, you can't use the + operator to concatenate strings in the same way you might in languages like C# or JavaScript. Rust's type system enforces more strict rules for string manipulation to prevent common runtime errors like buffer overflows and memory unsafety.
+
+To concatenate strings in Rust, you should use the .join() method provided by the std::path::PathBuf type. This method is specifically designed for joining paths and is safer than direct string concatenation because it handles platform-specific path separators.
+
+Here's the reason why your initial attempt current_dir + "test.txt" doesn't work:
+
+1. current_dir is of type std::path::PathBuf, not a String.
+2. The + operator is not defined for PathBuf and String.
+3. Rust enforces strict type safety, and you cannot directly concatenate different types.
+
+By using .join(), you ensure that the path is correctly constructed with the appropriate separator for your platform, making your code more portable and less error-prone.

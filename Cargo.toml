@@ -1,0 +1,40 @@
+[workspace]
+members = [
+    "learning",
+    "tcp",
+]
+default-members = ["learning"]
+
+[package]
+name = "rust_testing"
+version = "0.1.0"
+edition = "2021"
+default-run = "learning"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+
+[dependencies]
+actix-web = "4"
+rayon = "1.7.0"
+num-traits = "0.2.15"
+num_cpus = "1.13.0"
+serde = { version = "1.0.171", features = ["derive"] }
+serde_json = "1.0.1"
+sysinfo = "0.29.4"
+termcolor = "1.2.0"
+colored = "2.0"
+rand = "0.8.4"
+tokio = { version = "1", features = ["full"] }
+static-rc = "0.6.1"
+deadqueue = "0.2.4"
+base64 = "0.21.2"
+sha2 = "0.10.7"
+
+[[bin]]
+name = "learning"  # The name of the binary executable
+path = "learning/src/main.rs"  # Path to the binary source file
+
+[[bin]]
+name = "tcp"  # The name of the new binary executable
+path = "tcp/src/main.rs"  # Path to the new binary source file

@@ -1,0 +1,8 @@
+[package]
+name = "tcp"
+version = "0.1.0"
+edition = "2021"
+authors = ["Dionysus <dionysus-oss@proton.me>"]
+
+[dependencies]
+tokio = { version = "1.32.0", features = ["full"]  }
