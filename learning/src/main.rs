@@ -2439,7 +2439,7 @@ fn main() {
 */
 
 
-
+/*
 use std::env;
 
 trait Animal {
@@ -2530,7 +2530,7 @@ impl Animal for UndefinedPet {
 }
 
 impl Pet for UndefinedPet {
-    
+
     // does not override the show_method()
     // fn show_affection(&self) {
     //     println!("This undefined Pet instance affected by Pet.");
@@ -2570,3 +2570,575 @@ fn main() {
     print_animal_name_dyn(&undefined_pet);
     undefined_pet.show_affection();
 }
+*/
+
+
+
+/*
+// attempt to make progress bar (percentage for file downloading of tokio rqwest)
+use std::io;
+use tokio::{fs::File, io::AsyncWriteExt};
+use reqwest::Client;
+use dirs;
+
+async fn fetch_image_data(url: &str) -> io::Result<Vec<u8>> {
+    let client = Client::new();
+    let response = client.get(url).send().await.unwrap();
+    let mut image_data = Vec::new();
+
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk?;
+        image_data.extend_from_slice(&chunk);
+    }
+
+    Ok(image_data)
+}
+
+async fn save_image_data_to_downloads(image_data: Vec<u8>) -> io::Result<()> {
+    let downloads_dir = dirs::download_dir().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Download directory not found",
+    ))?;
+    let file_path = downloads_dir.join("dog_image.jpg");
+    let mut file = File::create(file_path).await?;
+    file.write_all(&image_data).await?;
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let url = "https://images.dog.ceo/breeds/mountain-swiss/n02107574_1387.jpg";
+    match fetch_image_data(url).await {
+        Ok(image_data) => {
+            if let Err(err) = save_image_data_to_downloads(image_data).await {
+                eprintln!("Error saving image: {}", err);
+            } else {
+                println!("Image saved to Downloads directory");
+            }
+        }
+        Err(err) => {
+            eprintln!("Error fetching image data: {}", err);
+        }
+    }
+}
+*/
+
+
+
+
+/*
+// bytes_stream not found
+use futures_util::StreamExt;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    println!("starting");
+
+    let mut stream = reqwest::get("http://localhost:8080/").await?.bytes_stream();
+
+    let mut buffer = Vec::new();
+    while let Some(item) = stream.next().await {
+        for byte in item? {
+            // Might need to consider carriage returns too depending
+            // on how the server is expected to send the data.
+            if byte == b'\n' {
+                println!("Got chunk: {:?}", buffer.as_slice());
+                buffer.clear();
+            } else {
+                buffer.push(byte);
+            }
+        }
+    }
+
+    Ok(())
+}
+*/
+
+
+
+/*
+// https://stackoverflow.com/questions/62462036/how-to-convert-a-bytes-iterator-into-a-stream-in-rust
+use futures::prelude::*;
+use std::{
+    fs::File,
+    io::{self, prelude::*, BufReader},
+};
+use tokio;
+
+fn async_read() -> impl Stream<Item = Result<u8, std::io::Error>> {
+    let downloads_dir = dirs::download_dir().ok_or(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Download directory not found",
+    )).unwrap();
+    let file_path = downloads_dir.join("blink.uf2"); // Provide the name of the file you want to read
+    let f = File::open(file_path).expect("Could not open file");
+    let reader = BufReader::new(f);
+    stream::iter(reader.bytes())
+}
+
+async fn async_main() {
+    while let Some(b) = async_read().next().await {
+        println!("{:?}", b);
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    ctrlc::set_handler(move || {
+        println!("received Ctrl+C!");
+        std::process::exit(0);
+    })
+    .expect("Error setting Ctrl-C handler");
+
+    async_main().await;
+}
+
+*/
+
+
+
+/*
+// STATUS: err: captured variable cannot escape `FnMut` closure body
+use futures::prelude::*;
+use std::{
+    fs::File,
+    io::{self, prelude::*, BufReader},
+    path::PathBuf,
+};
+use tokio;
+use tokio::time::Duration;
+
+async fn async_read(file_path: PathBuf) -> io::Result<impl Stream<Item = Result<u8, std::io::Error>>> {
+    let f = File::open(&file_path)?;
+    let reader = BufReader::new(f);
+    let stream = stream::iter(reader.bytes())
+        .map(|byte_result| {
+            tokio::time::sleep(Duration::from_millis(100)).await; // Simulate some processing time
+            byte_result
+        });
+    Ok(stream)
+}
+
+async fn async_main(file_path: PathBuf) -> io::Result<()> {
+    let stream = async_read(file_path).await?;
+    
+    let mut progress = 0;
+    stream
+        .for_each(|byte_result| async {
+            match byte_result {
+                Ok(byte) => {
+                    progress += 1;
+                    // Update progress bar or any other progress indicator here
+                    println!("Progress: {} bytes read", progress);
+                }
+                Err(err) => {
+                    eprintln!("Error reading file: {}", err);
+                }
+            }
+        })
+        .await;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let file_path = dirs::download_dir().unwrap().join("your_file_name_here"); // Provide the name of the file you want to read
+    match async_main(file_path).await {
+        Ok(_) => println!("File fetch completed."),
+        Err(err) => eprintln!("Error fetching file: {}", err),
+    }
+}
+*/
+
+
+
+/*
+// fixed:
+use futures::prelude::*;
+use std::{
+    fs::File,
+    io::{self, prelude::*, BufReader},
+    path::PathBuf,
+};
+use tokio;
+use tokio::time::Duration;
+
+async fn async_read(file_path: PathBuf) -> io::Result<impl Stream<Item = Result<u8, std::io::Error>>> {
+    let f = File::open(&file_path)?;
+    let reader = BufReader::new(f);
+    let stream = stream::iter(reader.bytes())
+        .map(|byte_result| {
+            byte_result.map(|byte| {
+                // tokio::time::sleep(Duration::from_millis(100)).await; // Simulate some processing time
+                byte
+            })
+        });
+    Ok(stream)
+}
+
+async fn async_main(file_path: PathBuf) -> io::Result<()> {
+    let stream = async_read(file_path).await?;
+    
+    let progress = stream
+        .fold(0, |progress, byte_result| async move {
+            match byte_result {
+                Ok(_) => {
+                    let new_progress = progress + 1;
+                    // Update progress bar or any other progress indicator here
+                    println!("Progress: {} bytes read", new_progress);
+                    new_progress
+                }
+                Err(err) => {
+                    eprintln!("Error reading file: {}", err);
+                    progress
+                }
+            }
+        })
+        .await;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let main_time: tokio::time::Instant = tokio::time::Instant::now();
+
+    let file_path = dirs::document_dir().unwrap().join("example.txt"); // Provide the name of the file you want to read
+    match async_main(file_path).await {
+        Ok(_) => println!("File fetch completed."),
+        Err(err) => eprintln!("Error fetching file: {}", err),
+    }
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Took: {:?} ({:?} ms)", duration, elapsed_ms);
+}
+*/
+
+
+
+/*
+// working fine for internet file
+use futures::prelude::*;
+use reqwest;
+use std::io;
+use tokio;
+
+// async fn async_read(url: &str) -> io::Result<impl Stream<Item = Result<u8, std::io::Error>>> {
+//     let response = reqwest::get(url).await.unwrap();
+//     let body = response.bytes().await.unwrap();
+//     let stream = stream::iter(body.into_iter().map(|byte| Ok(byte)));
+//     Ok(stream)
+// }
+async fn async_read(url: &str) -> io::Result<impl Stream<Item = Result<u8, std::io::Error>>> {
+    println!("Connecting to host...");
+    let response = reqwest::get(url).await.unwrap();
+    if response.status().is_success() {
+        println!("Successfully connected to host.");
+    } else {
+        eprintln!("Failed to connect to host: {}", response.status());
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to connect to host",
+        ));
+    }
+
+    let body = response.bytes().await.unwrap();
+    let stream = stream::iter(body.into_iter().map(|byte| Ok(byte)));
+    Ok(stream)
+}
+
+async fn async_main(url: &str) -> io::Result<()> {
+    let stream = async_read(url).await?;
+    
+    let progress = stream
+        .fold(0, |progress, byte_result| async move {
+            match byte_result {
+                Ok(_) => {
+                    let new_progress = progress + 1;
+                    // Update progress bar or any other progress indicator here
+                    // println!("Progress: {} bytes read", new_progress);
+                    new_progress
+                }
+                Err(err) => {
+                    eprintln!("Error reading file: {}", err);
+                    progress
+                }
+            }
+        })
+        .await;
+
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let url = "https://images.dog.ceo/breeds/mountain-swiss/n02107574_1387.jpg"; // Replace with the actual URL of the file
+    match async_main(url).await {
+        Ok(_) => println!("File fetch completed."),
+        Err(err) => eprintln!("Error fetching file: {}", err),
+    }
+}
+*/
+
+
+
+
+/*
+// 1 err, trying to fix but not succeeded yet (error[E0599]: no method named `next` found for opaque type `impl futures_util::Future<Output = Result<bytes::bytes::Bytes, reqwest::Error>>` in the current scope)
+// use futures::prelude::*;
+// use futures_util::FutureExt;    // not this
+// use futures::StreamExt; // not this
+use futures_util::TryStreamExt;
+use reqwest;
+use std::fs::File;
+use std::io::{self, prelude::*};
+use std::path::PathBuf;
+use std::time::Duration;
+use tokio;
+use indicatif::{ProgressBar, ProgressStyle};
+
+async fn async_read_with_progress(url: &str, file_path: PathBuf) -> io::Result<()> {
+    println!("Connecting to host...");
+    let response = reqwest::get(url).await.unwrap();
+    if response.status().is_success() {
+        println!("Successfully connected to host.");
+    } else {
+        eprintln!("Failed to connect to host: {}", response.status());
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to connect to host",
+        ));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    let mut downloaded = 0;
+
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .progress_chars("#>-"),
+    );
+
+    let mut writer = File::create(&file_path)?;
+
+    let mut stream = response.bytes();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.unwrap();
+        writer.write_all(&chunk)?;
+
+        downloaded += chunk.len() as u64;
+        pb.set_position(downloaded);
+
+        // Simulate some processing time
+        tokio::time::sleep(Duration::from_millis(12)).await;
+    }
+
+    pb.finish_with_message("Downloaded");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let url = "https://images.dog.ceo/breeds/mountain-swiss/n02107574_1387.jpg"; // Replace with the actual URL of the file
+    let file_path = dirs::download_dir().unwrap().join("your_file_name_here"); // Replace with the name you want to save the file as
+    match async_read_with_progress(url, file_path).await {
+        Ok(_) => println!("File downloaded successfully."),
+        Err(err) => eprintln!("Error downloading file: {}", err),
+    }
+}
+*/
+
+
+
+
+//*
+// Explanatory:  This happens because response.bytes() returns a Future that yields a single Result with the bytes of the response body.
+// To fix this error, you should use a different approach to read the response body. We can use response.bytes() to fetch the entire response body as bytes and then process it accordingly.
+// NOTE: I always got the error from chatgpt when use "?" instead of .unwrap() : the trait `From<reqwest::Error>` is not implemented for `std::io::Error`
+use reqwest;
+use std::fs::File;
+use std::io::{self, prelude::*};
+use std::path::PathBuf;
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+
+async fn async_read_with_progress(url: &str, file_path: PathBuf) -> io::Result<()> {
+    println!("Connecting to host...");
+    let response = reqwest::get(url).await.unwrap();
+    if response.status().is_success() {
+        println!("Successfully connected to host.");
+    } else {
+        eprintln!("Failed to connect to host: {}", response.status());
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to connect to host",
+        ));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    println!("file size: {}", total_size);
+    let mut downloaded = 0;
+
+    let pb = ProgressBar::new(total_size);
+    // pb.set_style(
+    //     ProgressStyle::default_bar()
+    //         .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+    //         .progress_chars("#>-"),
+    // );
+    pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .unwrap()
+        // .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+        .progress_chars("#>-"));
+
+    let mut writer = File::create(&file_path)?;
+
+    let bytes = response.bytes().await.unwrap();
+    writer.write_all(&bytes)?;
+
+    pb.finish_with_message("Downloaded");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    let url = "https://images.dog.ceo/breeds/mountain-swiss/n02107574_1387.jpg"; // Replace with the actual URL of the file
+    let file_path = dirs::download_dir().unwrap().join("dog_image.jpg"); // Replace with the name you want to save the file as
+    match async_read_with_progress(url, file_path).await {
+        Ok(_) => println!("File downloaded successfully."),
+        Err(err) => eprintln!("Error downloading file: {}", err),
+    }
+}
+// */
+
+
+
+
+/*
+// indicatif example download:
+use std::thread;
+use std::time::Duration;
+use std::{cmp::min, fmt::Write};
+
+use indicatif::{ProgressBar, ProgressState, ProgressStyle};
+
+fn main() {
+    let mut downloaded = 0;
+    let total_size = 70231231;
+
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .unwrap()
+        .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+        .progress_chars("#>-"));
+
+    while downloaded < total_size {
+        let new = min(downloaded + 223211, total_size);
+        downloaded = new;
+        pb.set_position(new);
+        thread::sleep(Duration::from_millis(12));
+    }
+
+    pb.finish_with_message("downloaded");
+}
+*/
+
+
+
+/*
+// colorfull bar
+use std::thread;
+use std::time::Duration;
+
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rand::{thread_rng, Rng};
+
+fn main() {
+    let styles = [
+        ("Rough bar:", "█  ", "red"),
+        ("Fine bar: ", "█▉▊▋▌▍▎▏  ", "yellow"),
+        ("Vertical: ", "█▇▆▅▄▃▂▁  ", "green"),
+        ("Fade in:  ", "█▓▒░  ", "blue"),
+        ("Blocky:   ", "█▛▌▖  ", "magenta"),
+    ];
+
+    let m = MultiProgress::new();
+
+    let handles: Vec<_> = styles
+        .iter()
+        .map(|s| {
+            let pb = m.add(ProgressBar::new(512));
+            pb.set_style(
+                ProgressStyle::with_template(&format!("{{prefix:.bold}}▕{{bar:.{}}}▏{{msg}}", s.2))
+                    .unwrap()
+                    .progress_chars(s.1),
+            );
+            pb.set_prefix(s.0);
+            let wait = Duration::from_millis(thread_rng().gen_range(10..30));
+            thread::spawn(move || {
+                for i in 0..512 {
+                    thread::sleep(wait);
+                    pb.inc(1);
+                    pb.set_message(format!("{:3}%", 100 * i / 512));
+                }
+                pb.finish_with_message("100%");
+            })
+        })
+        .collect();
+
+    for h in handles {
+        let _ = h.join();
+    }
+}
+*/
+
+
+
+
+/*
+// similar to npm compiles, advanced arguments: $ cr cargo build --release
+use std::io::{BufRead, BufReader};
+use std::process;
+use std::time::{Duration, Instant};
+
+use indicatif::{HumanDuration, ProgressBar, ProgressStyle};
+
+pub fn main() {
+    let started = Instant::now();
+
+    println!("Compiling package in release mode...");
+
+    let pb = ProgressBar::new_spinner();
+    pb.enable_steady_tick(Duration::from_millis(200));
+    pb.set_style(
+        ProgressStyle::with_template("{spinner:.dim.bold} cargo: {wide_msg}")
+            .unwrap()
+            .tick_chars("/|\\- "),
+    );
+
+    let mut p = process::Command::new("cargo")
+        .arg("build")
+        .arg("--release")
+        .stderr(process::Stdio::piped())
+        .spawn()
+        .unwrap();
+
+    for line in BufReader::new(p.stderr.take().unwrap()).lines() {
+        let line = line.unwrap();
+        let stripped_line = line.trim();
+        if !stripped_line.is_empty() {
+            pb.set_message(stripped_line.to_owned());
+        }
+        pb.tick();
+    }
+
+    p.wait().unwrap();
+
+    pb.finish_and_clear();
+
+    println!("Done in {}", HumanDuration(started.elapsed()));
+}
+*/
