@@ -17,7 +17,8 @@ async fn fetch_image_data(url: &str) -> io::Result<Vec<u8>> {
 
 async fn save_image_data_to_downloads(image_data: Vec<u8>) -> io::Result<()> {
 
-    // Save to Mac Downloads directory "/Users/user/Downloads"
+    // Save to Mac Downloads directory ("/Users/user/Downloads")
+    // If or Mac Document dir ("Users/user/Documents") : dirs::document_dir()
     let downloads_dir = dirs::download_dir().ok_or(io::Error::new(
         io::ErrorKind::NotFound,
         "Download directory not found",

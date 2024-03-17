@@ -2956,7 +2956,8 @@ async fn main() {
 
 
 
-//*
+/*
+// STATUS: not showing progress bar until finish, then it show 100% progress.
 // Explanatory:  This happens because response.bytes() returns a Future that yields a single Result with the bytes of the response body.
 // To fix this error, you should use a different approach to read the response body. We can use response.bytes() to fetch the entire response body as bytes and then process it accordingly.
 // NOTE: I always got the error from chatgpt when use "?" instead of .unwrap() : the trait `From<reqwest::Error>` is not implemented for `std::io::Error`
@@ -3005,14 +3006,208 @@ async fn async_read_with_progress(url: &str, file_path: PathBuf) -> io::Result<(
 
 #[tokio::main]
 async fn main() {
-    let url = "https://images.dog.ceo/breeds/mountain-swiss/n02107574_1387.jpg"; // Replace with the actual URL of the file
-    let file_path = dirs::download_dir().unwrap().join("dog_image.jpg"); // Replace with the name you want to save the file as
+    // 25Mb pdf file: http://research.nhm.org/pdfs/10840/10840.pdf
+    let url = "http://research.nhm.org/pdfs/10840/10840.pdf"; // Replace with the actual URL of the file
+    let file_path = dirs::download_dir().unwrap().join("manual.pdf"); // Replace with the name you want to save the file as
     match async_read_with_progress(url, file_path).await {
         Ok(_) => println!("File downloaded successfully."),
         Err(err) => eprintln!("Error downloading file: {}", err),
     }
 }
-// */
+*/
+
+
+
+
+
+/*
+// DARN IT, worked !!!! flawlessly !!!
+// Cargo.toml: dirs = "5.0.1", indicatif = "0.17.8", tokio = { version = "1", features = ["full"] }, reqwest = { version = "0.11.25", features = ["stream"]}, wasm-streams = "0.4.0"
+use futures::StreamExt;
+// https://github.com/rwf2/Rocket/discussions/1902
+use reqwest;
+use std::fs::File;
+use std::io::{self, prelude::*};
+use std::path::PathBuf;
+use indicatif::{ProgressBar, ProgressStyle};
+
+async fn async_read_with_progress(url: &str, file_path: PathBuf) -> io::Result<()> {
+    println!("Connecting to host...");
+    let response = reqwest::get(url).await.unwrap();
+    if response.status().is_success() {
+        println!("Successfully connected to host.");
+    } else {
+        eprintln!("Failed to connect to host: {}", response.status());
+        return Err(io::Error::new(
+            io::ErrorKind::Other,
+            "Failed to connect to host",
+        ));
+    }
+
+    let total_size = response.content_length().unwrap_or(0);
+    println!("file size: {}", total_size);
+
+    let pb = ProgressBar::new(total_size);
+    // pb.set_style(ProgressStyle::default_bar()
+    //     .template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+    //     .progress_chars("#>-"));
+    pb.set_style(ProgressStyle::with_template("{spinner:.green} [{elapsed_precise}] [{wide_bar:.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+        .unwrap()
+        // .with_key("eta", |state: &ProgressState, w: &mut dyn Write| write!(w, "{:.1}s", state.eta().as_secs_f64()).unwrap())
+        .progress_chars("#>-"));
+
+    let mut writer = File::create(&file_path)?;
+
+    let mut stream = response.bytes_stream();
+
+    while let Some(chunk) = stream.next().await {
+        let bytes = chunk.unwrap();     // <-- fix here
+        // if use "chunk?"  -> error: unknow size at compilation time
+
+        writer.write_all(&bytes)?;
+        pb.inc(bytes.len() as u64);
+    }
+
+    pb.finish_with_message("Downloaded");
+    Ok(())
+}
+
+#[tokio::main]
+async fn main() {
+    // 1.Mb pdf avr user manual: http://research.nhm.org/pdfs/10840/10840.pdf
+    let url = "http://research.nhm.org/pdfs/10840/10840.pdf"; // Replace with the actual URL of the file
+    let file_path = dirs::download_dir().unwrap().join("manual.pdf"); // Replace with the name you want to save the file as
+    match async_read_with_progress(url, file_path).await {
+        Ok(_) => println!("File downloaded successfully."),
+        Err(err) => eprintln!("Error downloading file: {}", err),
+    }
+}
+*/
+
+
+
+
+
+/*
+// DAMN IT: to use bytes_stream(), we have to enable feature "stream", and that requires "wasm-streams"
+// wasm-streams = "0.4.0"
+// reqwest = { version = "0.11.25", features = ["stream"]}
+use std::error::Error;
+
+use reqwest::Response;
+use tokio::io::{self, AsyncBufReadExt};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+
+    // let client = reqwest::Client::new();
+
+    // let response = client.get("STREAMING_URL")
+    //     .send()
+    //     .await.unwrap()
+    //     .bytes_stream();
+
+    //     if response.status().is_success() {
+    //         println!("Successfully connected to host.");
+    //     } else {
+    //         eprintln!("Failed to connect to host: {}", response.status());
+    //         return Err(io::Error::new(
+    //             io::ErrorKind::Other,
+    //             "Failed to connect to host",
+    //         ));
+    //     }
+    
+    //     let total_size = response.content_length().unwrap_or(0);
+    //     println!("file size: {}", total_size);
+
+    let mut res: Response = reqwest::get("https://online.hcmue.edu.vn")
+        .await
+        .unwrap();
+
+
+    // match res.content_length() {
+    //     Some(bytes) => println!("file size: {}", bytes),
+    //     None => println!("The server didn’t send a content-length header.")
+    // }
+
+    println!("Status: {}", &res.status());
+    println!("HTTP version: {:?}", &res.version());
+    println!("Headers: {:?}", &res.headers());
+    println!("RemoteAddr: {:?}", &res.remote_addr().unwrap());
+
+    // while let Some(chunk) = res.chunk().await? {
+    //     println!("Chunk: {chunk:?}");
+    // }
+
+
+
+    // while let Some(line) = lines.next_line().await? {
+    //     println!("length = {}", line.len())
+    // }
+
+    Ok(())
+}
+*/
+
+
+
+
+
+/*
+// https://users.rust-lang.org/t/rust-doesnt-have-a-size-known-at-compile-time/48375
+use std::fmt::Debug;
+
+// definitely won't compile:
+// #[derive(Debug)]
+// struct Node<K: Debug,V: Debug> {
+//     key: K,
+//     value: V,
+// }
+
+// fn myprint<K:Debug + ?Sized, V: Debug + ?Sized>(node: &Node<K, V>) {
+//     println!("{:?}", node);
+// }
+
+// attempt (worked):
+// #[derive(Debug)]
+// struct Node<'a, K: Debug + ?Sized,V: Debug + ?Sized> {
+//     key: &'a K,     // added this lifetime 'a to resolve: " borrowed types always have a statically known size: `&` "
+//     value: V,
+// }
+
+// fn myprint<K: Debug + ?Sized, V: Debug + ?Sized>(node: &Node<K, V>) {
+//     println!("{:?}", node);
+// }
+
+// a working solution
+#[derive(Debug)]
+struct Node<'a, K: Debug + ?Sized, V: Debug + ?Sized> {
+    key: &'a K,
+    value: &'a V,
+}
+
+fn myprint<K: Debug + ?Sized, V: Debug + ?Sized>(node: &Node<K, V>) {
+    println!("{:?}", node);
+}
+
+fn main() {
+    let node = Node{key: "xxx", value: "yyy"};
+    myprint(&node);
+}
+*/
+
+
+
+
+/*
+// Rust program for converting decimal to hexadecimal
+fn main() {
+    let decimal_number = 10;
+    let hexadecimal_string = format!("{:X}", decimal_number);
+    println!("Decimal {} is equivalent to hexadecimal {}", decimal_number, hexadecimal_string);
+}
+*/
+
 
 
 
@@ -3142,3 +3337,773 @@ pub fn main() {
     println!("Done in {}", HumanDuration(started.elapsed()));
 }
 */
+
+
+
+
+/*
+// single colored bar
+use std::{cmp::min, thread};
+use std::time::Duration;
+
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use rand::{thread_rng, Rng};
+
+fn main() {
+
+    let mut downloaded = 0;
+    let total_size = 70231231;
+
+    let s = ("Vertical: ", "█▇▆▅▄▃▂▁  ", "yellow");
+
+    let pb = ProgressBar::new(total_size);
+    pb.set_style(
+        ProgressStyle::with_template(&format!("{{prefix:.bold}}▕{{bar:.{}}}▏{{msg}}", s.2))
+            .unwrap()
+            .progress_chars(s.1),
+    );
+
+    while downloaded < total_size {
+        let new = min(downloaded + 223211, total_size);
+        downloaded = new;
+        pb.set_position(new);
+        thread::sleep(Duration::from_millis(12));
+        
+    }
+    
+
+    pb.finish_with_message("downloaded");
+}
+*/
+
+
+
+
+/*
+// err panic
+use std::arch::asm;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+
+#[tokio::main]
+async fn main() {
+    let main_time: std::time::Instant = std::time::Instant::now();
+
+    let i: u64 = 3;
+    let o: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
+
+    let o_clone = o.clone();
+    tokio::spawn(async move {
+        unsafe {
+            asm!(
+                "mov {0}, {1}",
+                "add {0}, 5",
+                out(reg) *o_clone.lock().await,
+                in(reg) i,
+            );
+        }
+    });
+
+    // Multiply x by 6 using shifts and adds
+    let mut x: u64 = 4;
+    let x_mutex = Arc::new(Mutex::new(x));
+
+    let x_clone = x_mutex.clone();
+    tokio::spawn(async move {
+        unsafe {
+            asm!(
+                "mov {tmp}, {x}",
+                "shl {tmp}, 1",
+                "shl {x}, 2",
+                "add {x}, {tmp}",
+                x = inout(reg) *x_clone.lock().await,
+                tmp = out(reg) _,
+            );
+        }
+    });
+
+    // Wait for both tasks to complete  (ERR HERE)
+    tokio::runtime::Runtime::new().unwrap().block_on(async {
+        let o_result = o.lock().await;
+        let x_result = x_mutex.lock().await;
+        println!("Output for first block: {}", *o_result);
+        println!("Output for second block: {}", *x_result);
+    });
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+}
+*/
+
+
+
+
+/*
+// STATUS: worked but not very performant
+// inline-asm rust with Tokio async concurrent parallel
+use std::{arch::asm, sync::Arc};
+use tokio::sync::{mpsc, Mutex};
+
+async fn process_asm_block(i: u64) -> u64 {
+    let o: u64;
+    unsafe {
+        asm!(
+            "mov {0}, {1}",
+            "add {0}, 5",
+            out(reg) o,
+            in(reg) i,
+        );
+    }
+    o
+}
+
+async fn process_shift_block(mut x: u64) -> u64 {
+    unsafe {
+        asm!(
+            "mov {tmp}, {x}",
+            "shl {tmp}, 1",
+            "shl {x}, 2",
+            "add {x}, {tmp}",
+            x = inout(reg) x,
+            tmp = out(reg) _,
+        );
+    }
+    x
+}
+
+#[tokio::main]
+async fn main() {
+    let main_time: std::time::Instant = std::time::Instant::now();
+
+    let i: u64 = 3;
+
+    // Create channels for communication between tasks
+    let (o_sender, mut o_receiver) = mpsc::channel(1);
+    let (x_sender, mut x_receiver) = mpsc::channel(1);
+
+    // Spawn asynchronous tasks
+    let i_clone = i;
+    tokio::spawn(async move {
+        let result = process_asm_block(i_clone).await;
+        o_sender.send(result).await.expect("Failed to send result");
+    });
+
+    let x: u64 = 4;
+    tokio::spawn(async move {
+        let result = process_shift_block(x).await;
+        x_sender.send(result).await.expect("Failed to send result");
+    });
+
+    // Receive and print results
+    let o = o_receiver.recv().await.expect("Failed to receive result");
+    let x = x_receiver.recv().await.expect("Failed to receive result");
+
+    println!("Output for first block: {}", o);
+    println!("Output for second block: {}", x);
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+}
+*/
+
+
+
+
+/*
+// use tokio::join! to optimize performance
+use std::arch::asm;
+use tokio::sync::mpsc;
+
+async fn first_block(i: u64) -> u64 {
+    let mut o: u64 = 0;
+    unsafe {
+        asm!(
+            "mov {0}, {1}",
+            "add {0}, 5",
+            out(reg) o,
+            in(reg) i,
+        );
+    }
+    o
+}
+
+async fn second_block(mut x: u64) -> u64 {
+    unsafe {
+        asm!(
+            "mov {tmp}, {x}",
+            "shl {tmp}, 1",
+            "shl {x}, 2",
+            "add {x}, {tmp}",
+            x = inout(reg) x,
+            tmp = out(reg) _,
+        );
+    }
+    x
+}
+
+#[tokio::main]
+async fn main() {
+    let main_time = std::time::Instant::now();
+
+    let i: u64 = 3;
+    let x: u64 = 4;
+
+    // Create channels for communication
+    let (tx1, rx1) = mpsc::channel::<u64>(1);
+    let (tx2, rx2) = mpsc::channel::<u64>(1);
+
+    // Spawn tasks
+    let first_task = tokio::spawn(async move {
+        first_block(i).await
+    });
+
+    let second_task = tokio::spawn(async move {
+        second_block(x).await
+    });
+
+    // Wait for tasks to complete and collect results
+    let (result1, result2) = tokio::try_join!(first_task, second_task).unwrap();
+
+    println!("Output for first block: {}", result1);
+    println!("Output for second block: {}", result2);
+
+    // End of main
+    let duration = main_time.elapsed();
+    let elapsed_ms = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:.6} ms)", duration, elapsed_ms);
+}
+*/
+
+
+
+
+
+
+/*
+// a review of async deep dive (tokio):
+// https://blog.yanick.site/2020/09/08/rust/poller-in-tokio/
+use tokio::{io::{AsyncRead, AsyncReadExt, AsyncWriteExt, ReadBuf}, net::TcpListener};
+use std::{env, error::Error, io::{self, Read}, pin::Pin, task::{Context, Poll}, thread};
+use std::future::Future;
+
+
+// impl<R> Future for Read<'_, R>
+// where
+//     R: AsyncRead + Unpin + ?Sized,
+// {
+//     type Output = io::Result<usize>;
+
+//     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<usize>> {
+//         let me = &mut *self;
+//         let mut buf = ReadBuf::new(me.buf);
+//         // ready!(Pin::new(&mut *me.reader).poll_read(cx, &mut buf))?; 方便理解我把宏展开了
+//         match Pin::new(&mut *me.reader).poll_read(cx, &mut buf) {
+//             std::task::Poll::Ready(t) => t,
+//             std::task::Poll::Pending => return std::task::Poll::Pending,
+//         }
+//         Poll::Ready(Ok(buf.filled().len()))
+//     }
+// }
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let addr = env::args()
+        .nth(1)
+        .unwrap_or_else(|| "127.0.0.1:8080".to_string());
+
+    let mut listener = TcpListener::bind("127.0.0.1:8080").await?;
+    println!("Listening on: {}", addr);
+
+    loop {
+        let (mut socket, addr) = listener.accept().await?;
+        println!("accepted {}", addr);
+
+        tokio::spawn(async move {
+            let mut buf = [0; 1024];
+
+            // In a loop, read data from the socket and write the data back.
+            loop {
+                let n = socket
+                    .read(&mut buf) // import io::AsyncReadEx
+                    .await
+                    .expect("failed to read data from socket");
+
+                println!("current thread: {:?}", thread::current());
+
+                if n == 0 {
+                    return;
+                }
+
+                socket
+                    .write_all(&buf[0..n])  // import io::AsyncWriteExt
+                    .await
+                    .expect("failed to write data to socket");
+            }
+        });
+    }
+}
+*/
+
+
+
+
+
+
+/*
+// https://stackoverflow.com/questions/31497584/how-can-i-wrap-another-type-and-add-fields-and-methods-to-it
+use std::ops::{Deref, DerefMut};
+
+struct Glyph;
+
+struct Glyphs(Vec<Glyph>);
+
+impl Glyphs {
+    fn new() -> Self {
+        Glyphs(vec![])
+    }
+}
+
+impl Deref for Glyphs {
+    type Target = Vec<Glyph>;
+    fn deref(&self) -> &Vec<Glyph> { &self.0 }
+}
+
+impl DerefMut for Glyphs {
+    fn deref_mut(&mut self) -> &mut Vec<Glyph> { &mut self.0 }
+}
+
+fn main() {
+    let mut gs = Glyphs::new();
+    gs.push(Glyph);
+    gs.push(Glyph);
+    println!("gs.len: {}", gs.len());
+}
+*/
+
+
+
+/*
+// https://stackoverflow.com/questions/33376486/is-there-a-way-other-than-traits-to-add-methods-to-a-type-i-dont-own?rq=3
+trait DoubleExt {
+    fn double(&self) -> Self;
+}
+
+impl DoubleExt for i32 {
+    fn double(&self) -> Self {
+        *self * 2
+    }
+}
+
+impl DoubleExt for f64 {
+    fn double(&self) -> Self {
+        *self * 2.0
+    }
+}
+
+fn main() {
+    let a = 42;
+    let b = 42.2;
+
+    println!("{}", a.double());
+    println!("{}", b.double())
+}
+*/
+
+
+
+
+/*
+// Rust magazine
+// Rust just copies instead of Move?
+struct Massive {
+    a: [i128; 10000],
+}
+
+impl Massive {
+    #[inline(always)]
+    fn stupid(mut self) -> Self {
+        println!("{:?}", &mut self.a[1] as *mut i128); // 0x7ffe178babc0
+
+        //do some stuff to alter it
+        self.a[1] += 23;
+        self.a[4] += 24;
+        
+        self
+    }
+}
+
+fn main() {
+    let mut f = Massive { a: [10i128; 10000] }; // 0x7ffe17845870
+
+    println!("{:?}", &mut f.a[1] as *mut i128);
+
+    let mut f2 = f.stupid();
+
+    println!("{:?}", &mut f2.a[1] as *mut i128); // 0x7ffe17893ac0
+}
+
+// 作者：Rust_Magazine
+// 链接：https://juejin.cn/post/7062249584067608612
+// 来源：稀土掘金
+// 著作权归作者所有。商业转载请联系作者获得授权，非商业转载请注明出处。
+*/
+
+
+
+/*
+unsigned long myTime;
+void setup() {
+    Serial.begin(9600);
+    Serial.print("Hello");
+    Serial.print("Hello again");
+}
+
+void loop() {
+    Serial.print("Time: ");
+    myTime = millis();
+    Serial.print(myTime);
+    delay(1000);    // one sec
+
+}
+// Bấm verify (v) -> bấm nạp code (->)
+// verify = compile
+// góc phải trên IDE có mở serial để đọc output log
+*/
+
+
+/*
+// blink onboard led:
+// the setup function runs once when you press reset or power the board
+void setup() {
+    // initialize digital pin LED_BUILTIN as an output.
+    pinMode(LED_BUILTIN, OUTPUT);
+  }
+  
+  // the loop function runs over and over again forever
+  void loop() {
+    digitalWrite(LED_BUILTIN, HIGH);  // turn the LED on (HIGH is the voltage level)
+    delay(300);                      // wait for 0.3 second
+    digitalWrite(LED_BUILTIN, LOW);   // turn the LED off by making the voltage LOW
+    delay(300);                      // wait for 0.3 second
+  }
+*/
+
+
+// read button:
+/*
+  Button
+
+  Turns on and off a light emitting diode(LED) connected to digital pin 13,
+  when pressing a pushbutton attached to pin 2.
+
+  The circuit:
+  - LED attached from pin 13 to ground through 220 ohm resistor
+  - pushbutton attached to pin 2 from +5V
+  - 10K resistor attached to pin 2 from ground
+
+  - Note: on most Arduinos there is already an LED on the board
+    attached to pin 13.
+
+  created 2005
+  by DojoDave <http://www.0j0.org>
+  modified 30 Aug 2011
+  by Tom Igoe
+
+  This example code is in the public domain.
+
+  https://www.arduino.cc/en/Tutorial/BuiltInExamples/Button
+*/
+
+
+/*
+// https://docs.arduino.cc/built-in-examples/digital/Button/
+// constants won't change. They're used here to set pin numbers:
+const int buttonPin = 2;  // the number of the pushbutton pin
+const int ledPin = 13;    // the number of the LED pin (built-in)
+
+// variables will change:
+int buttonState = 0;  // variable for reading the pushbutton status
+
+void setup() {
+  // initialize the LED pin as an output:
+  pinMode(ledPin, OUTPUT);
+  // initialize the pushbutton pin as an input:
+  pinMode(buttonPin, INPUT);
+}
+
+void loop() {
+  // read the state of the pushbutton value:
+  buttonState = digitalRead(buttonPin);
+
+  // check if the pushbutton is pressed. If it is, the buttonState is HIGH:
+  if (buttonState == HIGH) {
+    // turn LED on:
+    digitalWrite(ledPin, HIGH);
+    delay(600);
+  } else {
+    // turn LED off:
+    digitalWrite(ledPin, LOW);
+    delay(600)
+  }
+}
+*/
+
+
+
+
+/*
+// STATUS: The breakline happen before the stdout task.
+// tokio print file with dirs crate
+use std::env::args;
+
+use dirs;
+
+use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}};
+
+const LEN: usize = 16 * 1024; // 16 Kb
+
+#[tokio::main]
+async fn main() -> Result<(), std::io::Error> {
+    
+    // retrieve "Users/user/Documents" directory on macos
+    let path = dirs::document_dir().unwrap().join("example.txt"); // Replace with the name you want to save the file as
+    // let path = args().nth(1).expect("missing path argument");
+
+    tokio::spawn(async move {
+        let mut file = File::open(&path).await?;
+        let mut stdout = io::stdout();
+        let mut buf = vec![0u8; LEN];
+
+        loop {
+            // Read a buffer from the file.
+            let n = file.read(&mut buf).await?;
+
+            // If this is the end of file, clean up and return.
+            if n == 0 {
+                stdout.flush().await?;
+                return Ok(());
+            }
+
+            // Write the buffer into stdout.
+            stdout.write_all(&buf[..n]).await?;
+            println!("\n"); // breakline in terminal
+        }
+    }).await?
+}
+*/
+
+
+
+
+/*
+// STATUS: program wont stop after finish
+// tokio print file with dirs crate
+use std::env::args;
+
+use dirs;
+
+use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}};
+
+const LEN: usize = 16 * 1024; // 16 Kb
+
+#[tokio::main]
+async fn main() {
+    
+    // retrieve "Users/user/Documents" directory on macOS
+    let path = dirs::document_dir().unwrap().join("example.txt"); // Replace with the name you want to save the file as
+    // let path = args().nth(1).expect("missing path argument");
+
+    // Spawn a Tokio task to read the file asynchronously.
+    let reading_task = tokio::spawn(async move {
+        let mut file = File::open(&path).await.unwrap();
+        let mut stdout = io::stdout();
+        let mut buf = vec![0u8; LEN];
+
+        loop {
+            // Read a buffer from the file.
+            let n = file.read(&mut buf).await.unwrap();
+
+            // If this is the end of file, clean up and return.
+            if n == 0 {
+                stdout.flush().await.unwrap();
+                // return Ok(());
+            }
+
+            // Write the buffer into stdout.
+            stdout.write_all(&buf[..n]).await.unwrap();
+            // println!("\n"); // breakline in terminal
+        }
+    });
+
+    // Await the completion of the spawned Tokio task.
+    reading_task.await.unwrap();
+
+    // Ok(())
+}
+*/
+
+
+
+
+/*
+// STATUS: worked, bad output (content stick with next terminal line)
+use std::env::args;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
+
+const LEN: usize = 16 * 1024; // 16 Kb
+
+#[tokio::main]
+async fn main() {
+    // retrieve "Users/user/Documents" directory on macOS
+    let path = dirs::document_dir().unwrap().join("example.txt");
+
+    // Create a channel to signal when the file reading task is finished.
+    let (tx, mut rx) = mpsc::channel::<()>(10);
+
+    // Spawn a Tokio task to read the file asynchronously.
+    let reading_task = tokio::spawn(async move {
+        let mut file = File::open(&path).await.unwrap();
+        let mut stdout = io::stdout();
+        let mut buf = vec![0u8; LEN];
+
+        loop {
+            // Read a buffer from the file.
+            let n = file.read(&mut buf).await.unwrap();
+
+            // If this is the end of file, clean up and return.
+            if n == 0 {
+                stdout.flush().await.unwrap();
+                break;
+            }
+
+            // Write the buffer into stdout.
+            stdout.write_all(&buf[..n]).await.unwrap();
+        }
+
+        // Send a signal through the channel to indicate that the task is finished.
+        let _ = tx.send(()).await;
+    });
+
+    // Wait for the file reading task to finish.
+    reading_task.await.unwrap();
+
+    // Wait for the signal from the channel indicating that the task is finished.
+    rx.recv().await;
+
+    // The program will automatically terminate here.
+}
+*/
+
+
+
+
+/*
+// STATUS: the the breakline is being executed before the stdout is fully flushed.
+use std::env::args;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
+
+const LEN: usize = 16 * 1024; // 16 Kb
+
+#[tokio::main]
+async fn main() {
+    // retrieve "Users/user/Documents" directory on macOS
+    let path = dirs::document_dir().unwrap().join("example.txt");
+
+    // Create a channel to signal when the file reading task is finished.
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+
+    // Spawn a Tokio task to read the file asynchronously.
+    let reading_task = tokio::spawn(async move {
+        let mut file = File::open(&path).await.unwrap();
+        let mut stdout = io::stdout();
+        let mut buf = vec![0u8; LEN];
+
+        loop {
+            // Read a buffer from the file.
+            let n = file.read(&mut buf).await.unwrap();
+
+            // If this is the end of file, clean up and return.
+            if n == 0 {
+                stdout.flush().await.unwrap();
+                break;
+            }
+
+            // Write the buffer into stdout.
+            stdout.write_all(&buf[..n]).await.unwrap();
+            // Add a breakline after printing the content.
+            println!();
+        }
+
+        // Send a signal through the channel to indicate that the task is finished.
+        let _ = tx.send(()).await;
+    });
+
+    // Wait for the file reading task to finish.
+    reading_task.await.unwrap();
+
+    // Wait for the signal from the channel indicating that the task is finished.
+    rx.recv().await;
+
+    // The program will automatically terminate here.
+}
+*/
+
+
+
+
+
+// STATUS: solved
+// to ensure that the breakline is printed after all the content has been flushed to stdout. We can achieve this by waiting for the file reading task to finish before printing the breakline.
+use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
+
+const LEN: usize = 16 * 1024; // 16 Kb
+
+#[tokio::main]
+async fn main() {
+    // retrieve "Users/user/Documents" directory on macOS
+    let path = dirs::document_dir().unwrap().join("example.txt");
+
+    // Create a channel to signal when the file reading task is finished.
+    let (tx, mut rx) = mpsc::channel::<()>(1);
+
+    // Spawn a Tokio task to read the file asynchronously.
+    let reading_task = tokio::spawn(async move {
+        let mut file = File::open(&path).await.unwrap();
+        let mut stdout = io::stdout();
+        let mut buf = vec![0u8; LEN];
+
+        loop {
+            // Read a buffer from the file.
+            let n = file.read(&mut buf).await.unwrap();
+
+            // If this is the end of file, clean up and return.
+            if n == 0 {
+                stdout.flush().await.unwrap();
+                break;
+            }
+
+            // Write the buffer into stdout.
+            stdout.write_all(&buf[..n]).await.unwrap();
+        }
+
+        // Send a signal through the channel to indicate that the task is finished.
+        let _ = tx.send(()).await;
+    });
+
+    // Wait for the file reading task to finish.
+    reading_task.await.unwrap();
+
+    // Wait for the signal from the channel indicating that the task is finished.
+    rx.recv().await;
+
+    // Add a breakline after the task is finished.
+    println!();
+}
