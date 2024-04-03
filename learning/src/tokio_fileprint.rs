@@ -94,67 +94,11 @@ async fn main() {
 
 
 
+
 /*
 // attempt 3
-// STATUS: worked, bad output (content stick with next terminal line)
-use std::env::args;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
-
-const LEN: usize = 16 * 1024; // 16 Kb
-
-#[tokio::main]
-async fn main() {
-    // retrieve "Users/user/Documents" directory on macOS
-    let path = dirs::document_dir().unwrap().join("example.txt");
-
-    // Create a channel to signal when the file reading task is finished.
-    let (tx, mut rx) = mpsc::channel::<()>(10);
-
-    // Spawn a Tokio task to read the file asynchronously.
-    let reading_task = tokio::spawn(async move {
-        let mut file = File::open(&path).await.unwrap();
-        let mut stdout = io::stdout();
-        let mut buf = vec![0u8; LEN];
-
-        loop {
-            // Read a buffer from the file.
-            let n = file.read(&mut buf).await.unwrap();
-
-            // If this is the end of file, clean up and return.
-            if n == 0 {
-                stdout.flush().await.unwrap();
-                break;
-            }
-
-            // Write the buffer into stdout.
-            stdout.write_all(&buf[..n]).await.unwrap();
-        }
-
-        // Send a signal through the channel to indicate that the task is finished.
-        let _ = tx.send(()).await;
-    });
-
-    // Wait for the file reading task to finish.
-    reading_task.await.unwrap();
-
-    // Wait for the signal from the channel indicating that the task is finished.
-    rx.recv().await;
-
-    // The program will automatically terminate here.
-}
-*/
-
-
-
-
-/*
-// attempt 4
-// STATUS: the the breakline is being executed before the stdout is fully flushed.
-use std::env::args;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+// STATUS: worked, but the the breakline is being executed before the stdout is fully flushed.
+// explanatory: In an asynchronous Rust program using Tokio, we typically want the program to terminate when all tasks are completed. To achieve this, we can use a synchronization mechanism like channels to signal when the file reading task is finished. Here's how we can modify our code to use channels
 use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
 
 const LEN: usize = 16 * 1024; // 16 Kb

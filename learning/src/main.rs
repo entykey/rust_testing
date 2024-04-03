@@ -3855,6 +3855,94 @@ void loop() {
 
 
 
+
+/*
+// fast blink & sleep & repeat
+// Define the pin connected to the LED
+const int ledPin = 13;
+
+void setup() {
+  // Set the LED pin as an output
+  pinMode(ledPin, OUTPUT);
+}
+
+void loop() {
+  // Blink fast three times
+  for (int i = 0; i < 3; i++) {
+    digitalWrite(ledPin, HIGH); // Turn the LED on
+    delay(100);                 // Wait for 200 milliseconds
+    digitalWrite(ledPin, LOW);  // Turn the LED off
+    delay(100);                 // Wait for 200 milliseconds
+  }
+
+  // Pause before repeating the pattern
+  delay(600);  // Wait for 1 second
+}
+*/
+
+
+/*
+// servo 180 deg turn 
+#include <Servo.h>
+
+Servo myservo;  // create servo object to control a servo
+// twelve servo objects can be created on most boards
+
+int pos = 0;    // variable to store the servo position
+
+void setup() {
+  myservo.attach(9);  // attaches the servo on pin 9 to the servo object
+}
+
+void loop() {
+  // Turn fast clockwise (90 degrees)
+  myservo.write(180);
+  delay(5);  // Wait for 5 milliseconds
+
+  // Turn fast counterclockwise (90 degrees)
+  myservo.write(0);
+  delay(5);  // Wait for 5 milliseconds
+}
+*/
+
+
+
+/*
+//Arduino Code - Move from A to B by a specific number of steps with set speed and acceleration
+// ref: https://www.diyengineers.com/2021/11/25/28byj-48-uln2003-stepper-motor-control/
+ 
+// Include the Arduino Stepper.h library:
+#include <AccelStepper.h> //Include the AccelStepper library
+ 
+// Define the motor pins:
+#define MP1  8 // IN1 on the ULN2003
+#define MP2  9 // IN2 on the ULN2003
+#define MP3  10 // IN3 on the ULN2003
+#define MP4  11 // IN4 on the ULN2003
+ 
+#define MotorInterfaceType 8 // Define the interface type as 8 = 4 wires * step factor (2 for half step)
+AccelStepper stepper = AccelStepper(MotorInterfaceType, MP1, MP3, MP2, MP4);//Define the pin sequence (IN1-IN3-IN2-IN4)
+const int SPR = 2048;//Steps per revolution
+ 
+void setup() {
+  stepper.setMaxSpeed(1200);//Set the maximum motor speed in steps per second
+  stepper.setAcceleration(200);//Set the maximum acceleration in steps per second^2
+}
+ 
+void loop() {
+  stepper.moveTo(4*SPR); //Set the target motor position (i.e. turn motor for 4 full revolutions)
+  stepper.runToPosition(); // Run the motor to the target position 
+  delay(1000);
+  stepper.moveTo(-4*SPR);//Same as above: Set the target motor position (i.e. turn motor for 4 full revolutions)
+  stepper.runToPosition(); // Run the motor to the target position 
+  delay(10000);
+}
+*/
+
+
+
+
+
 /*
 // STATUS: The breakline happen before the stdout task.
 // tokio print file with dirs crate
@@ -3935,7 +4023,7 @@ async fn main() {
 
             // Write the buffer into stdout.
             stdout.write_all(&buf[..n]).await.unwrap();
-            // println!("\n"); // breakline in terminal
+            // print!("I’m being looped infinitely"); // breakline in terminal
         }
     });
 
@@ -3949,71 +4037,18 @@ async fn main() {
 
 
 
+
+
 /*
-// STATUS: worked, bad output (content stick with next terminal line)
-use std::env::args;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+// STATUS: worked, but the the breakline is being executed before the stdout is fully flushed.
+// explanatory: In an asynchronous Rust program using Tokio, we typically want the program to terminate when all tasks are completed. To achieve this, we can use a synchronization mechanism like channels to signal when the file reading task is finished. Here's how we can modify our code to use channels
 use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
 
 const LEN: usize = 16 * 1024; // 16 Kb
 
 #[tokio::main]
 async fn main() {
-    // retrieve "Users/user/Documents" directory on macOS
-    let path = dirs::document_dir().unwrap().join("example.txt");
-
-    // Create a channel to signal when the file reading task is finished.
-    let (tx, mut rx) = mpsc::channel::<()>(10);
-
-    // Spawn a Tokio task to read the file asynchronously.
-    let reading_task = tokio::spawn(async move {
-        let mut file = File::open(&path).await.unwrap();
-        let mut stdout = io::stdout();
-        let mut buf = vec![0u8; LEN];
-
-        loop {
-            // Read a buffer from the file.
-            let n = file.read(&mut buf).await.unwrap();
-
-            // If this is the end of file, clean up and return.
-            if n == 0 {
-                stdout.flush().await.unwrap();
-                break;
-            }
-
-            // Write the buffer into stdout.
-            stdout.write_all(&buf[..n]).await.unwrap();
-        }
-
-        // Send a signal through the channel to indicate that the task is finished.
-        let _ = tx.send(()).await;
-    });
-
-    // Wait for the file reading task to finish.
-    reading_task.await.unwrap();
-
-    // Wait for the signal from the channel indicating that the task is finished.
-    rx.recv().await;
-
-    // The program will automatically terminate here.
-}
-*/
-
-
-
-
-/*
-// STATUS: the the breakline is being executed before the stdout is fully flushed.
-use std::env::args;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
-use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
-
-const LEN: usize = 16 * 1024; // 16 Kb
-
-#[tokio::main]
-async fn main() {
+    let main_time = std::time::Instant::now();
     // retrieve "Users/user/Documents" directory on macOS
     let path = dirs::document_dir().unwrap().join("example.txt");
 
@@ -4038,8 +4073,8 @@ async fn main() {
 
             // Write the buffer into stdout.
             stdout.write_all(&buf[..n]).await.unwrap();
-            // Add a breakline after printing the content.
-            println!();
+            // // Add a breakline after printing the content.
+            // println!();
         }
 
         // Send a signal through the channel to indicate that the task is finished.
@@ -4052,6 +4087,14 @@ async fn main() {
     // Wait for the signal from the channel indicating that the task is finished.
     rx.recv().await;
 
+    // Add a breakline after printing the content.
+    println!();
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+
     // The program will automatically terminate here.
 }
 */
@@ -4060,6 +4103,7 @@ async fn main() {
 
 
 
+/*
 // STATUS: solved
 // to ensure that the breakline is printed after all the content has been flushed to stdout. We can achieve this by waiting for the file reading task to finish before printing the breakline.
 use tokio::{fs::File, io::{self, AsyncReadExt, AsyncWriteExt}, sync::mpsc};
@@ -4107,3 +4151,744 @@ async fn main() {
     // Add a breakline after the task is finished.
     println!();
 }
+*/
+
+
+
+
+
+/*
+// STATUS: This code sometimes cause deadlock
+// by this approach of multiple `tokio::spawn()`, we create 4 concurrent async tasks that run toghether
+use tokio::sync::mpsc;
+
+#[tokio::main]
+async fn main() {
+    let (sender1, mut receiver) = mpsc::channel::<String>(10); // Specify the type as String
+    let sender2: mpsc::Sender<String> = sender1.clone();
+    let sender3 = sender1.clone();
+    let sender4 = sender1.clone();
+
+    println!("max channel capacity: {}", &sender1.max_capacity());  // no definition in struct `UnboundedSender`
+
+    // timer to measure 4 spawned concurrent tasks
+    let time: std::time::Instant = std::time::Instant::now();
+
+    let handle1 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        for i in 0..=10 {
+            if let Err(_) = sender1.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+            // task waits until the receiver receives a value.
+        }
+    });
+
+    let handle2 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+
+        for i in 11..=20 {
+            if let Err(_) = sender2.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+        }
+    }).await.unwrap();
+
+
+    let handle3 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        for i in 21..=30 {
+            if let Err(_) = sender3.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+        }
+    });
+
+    // tokio::join!(handle1, handle2, handle3);
+
+
+    tokio::spawn(async move {
+        // This will return an error and send
+        // no message if the buffer is full
+        let _ = sender4.try_send("from sender4".to_string());
+    });
+
+    while let Some(i) = receiver.recv().await {
+        println!("got message = {}", i);
+    }
+
+    // Stop timer & print to terminal
+    let duration: std::time::Duration = time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    let elapsed_seconds: f64 = elapsed_ms / 1000.0;
+    println!(
+        ">>>  time elapsed: {:?} ({:?} ms) ({:.8} s)",
+        duration, elapsed_ms, elapsed_seconds
+    );
+}
+*/
+
+
+
+
+
+/*
+// Protothread и кооперативная многозад c++
+// FIX deadlock of mpsc_worker.rs:
+// Explanatory: To prevent deadlock, we need to ensure that the receiver loop terminates even if there are no more messages in the channel. We can achieve this by introducing a sentinel value and having the senders send this value to signal the end of the stream.
+use tokio::sync::mpsc;
+
+const SENTINEL: &str = "__SENTINEL__";
+
+#[tokio::main]
+async fn main() {
+    let (sender1, mut receiver) = mpsc::channel::<String>(10);
+    let sender2 = sender1.clone();
+    let sender3 = sender1.clone();
+    let sender4 = sender1.clone();
+
+    println!("max channel capacity: {}", sender1.capacity());
+
+    let time = std::time::Instant::now();
+
+    let handle1 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        for i in 0..=10 {
+            if let Err(_) = sender1.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+        }
+        // Signal end of stream
+        sender1.send(SENTINEL.to_string()).await.unwrap();
+    });
+
+    let handle2 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+
+        for i in 11..=20 {
+            if let Err(_) = sender2.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+        }
+        // Signal end of stream
+        sender2.send(SENTINEL.to_string()).await.unwrap();
+    });
+
+    let handle3 = tokio::spawn(async move {
+        tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+
+        for i in 21..=30 {
+            if let Err(_) = sender3.send(i.to_string()).await {
+                println!("receiver dropped");
+                return;
+            }
+        }
+        // Signal end of stream
+        sender3.send(SENTINEL.to_string()).await.unwrap();
+    });
+
+    tokio::spawn(async move {
+        // This will return an error and send
+        // no message if the buffer is full
+        let _ = sender4.try_send("from sender4".to_string());
+        // Signal end of stream
+        sender4.send(SENTINEL.to_string()).await.unwrap();
+    });
+
+    let mut count = 0;
+    while let Some(i) = receiver.recv().await {
+        if i == SENTINEL {
+            count += 1;
+            if count == 4 {
+                break;
+            }
+        } else {
+            println!("got message = {}", i);
+        }
+    }
+
+    let duration = time.elapsed();
+    let elapsed_ms = duration.as_secs_f64() * 1000.0;
+    let elapsed_seconds = elapsed_ms / 1000.0;
+    println!(
+        ">>>  time elapsed: {:?} ({:?} ms) ({:.8} s)",
+        duration, elapsed_ms, elapsed_seconds
+    );
+}
+*/
+
+
+
+
+/*
+// Try converting this to C/C++ code
+// single threaded, blocking whole program
+use std::sync::mpsc;
+use std::thread;
+use rand::prelude::*;
+
+
+fn main() {
+    let (tx, rx) = mpsc::channel::<String>();
+	let mut rng = thread_rng();
+	
+	for i in 1..=3 {
+		let tx = tx.clone();
+	
+		thread::spawn(move || {
+      		let val = format!("hi from thread {}", i);
+     		tx.send(val).unwrap();
+    	});
+		
+        // Generate a random delay for each thread
+        let delay_ms = rng.gen_range(10..=100); // Random delay between 1000ms and 3000ms
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+	}
+	
+	// without closing sender, it will deadlock
+	drop(tx);
+	
+	
+	// receive if there are messages.
+	// damn it, the while loop made me struggled for a while
+	while let Ok(msg) = rx.recv() {
+		println!("Got {}", msg);
+	}
+}
+*/
+/*
+Output:
+Got hi from thread 1
+Got hi from thread 2
+Got hi from thread 3
+*/
+
+
+
+/*
+// single threaded, blocking whole program
+use std::sync::mpsc;
+use std::thread;
+use rand::prelude::*;
+
+
+fn main() {
+    let main_time = std::time::Instant::now();
+
+    let (tx, rx) = mpsc::channel::<String>();
+	let mut rng = thread_rng();
+	
+	for i in 1..=3 {
+		let tx = tx.clone();
+	
+		thread::spawn(move || {
+      		let val = format!("hi from thread {}", i);
+     		tx.send(val).unwrap();
+    	});
+		
+        // Generate a random delay for each thread
+        let delay_ms = rng.gen_range(10..=200); // Random delay between 1000ms and 3000ms
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+	}
+
+    for i in 4..=10 {
+		let tx = tx.clone();
+	
+		thread::spawn(move || {
+      		let val = format!("hi from thread {}", i);
+     		tx.send(val).unwrap();
+    	});
+		
+        // Generate a random delay for each thread
+        // let delay_ms = rng.gen_range(10..=200); // Random delay between 1000ms and 3000ms
+        // std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+	}
+	
+	// without closing sender, it will deadlock
+	drop(tx);
+	
+	// only receives first 1 message.
+	//let received = rx.recv().unwrap();
+    //println!("Got: {}", received);
+	
+	
+	// receive if there are messages.
+	// damn it, the while loop made me struggled for a while
+	while let Ok(msg) = rx.recv() {
+		println!("Got {}", msg);
+	}
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+
+}
+*/
+
+
+
+
+/*
+// (BAD)achieved concurrent output but still blocking
+// worked, but must low performant due to instance re-creation/cloning
+use std::sync::mpsc;
+use std::thread;
+use rand::prelude::*;
+
+fn main() {
+    let (tx, rx) = mpsc::channel::<String>();
+    // let mut rng = thread_rng();
+
+    // Spawn threads to send messages
+    for i in 1..=3 {
+        let tx = tx.clone();
+
+        thread::spawn(move || {
+            let mut rng = thread_rng();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    for i in 4..=10 {
+        let tx = tx.clone();
+
+        thread::spawn(move || {
+            let mut rng = thread_rng();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    // Spawn a separate thread to handle printing
+    thread::spawn(move || {
+        // Receive messages and print them as they arrive
+        while let Ok(msg) = rx.recv() {
+            println!("Got {}", msg);
+        }
+    });
+
+    // (Bad) Sleep in the main thread to allow other threads to run
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+*/
+/*
+Output:
+Got hi from thread 6
+Got hi from thread 8
+Got hi from thread 5
+Got hi from thread 7
+Got hi from thread 1
+Got hi from thread 4
+Got hi from thread 3
+Got hi from thread 9
+Got hi from thread 2
+Got hi from thread 10
+*/
+
+
+
+
+/*
+// error: `Rc<UnsafeCell<ReseedingRng<rand_chacha::chacha::ChaCha12Core, OsRng>>>` cannot be sent between threads safely
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use rand::{prelude::*, thread_rng};
+
+fn main() {
+    let (tx, rx) = mpsc::channel::<String>();
+    let rng = Arc::new(Mutex::new(thread_rng()));
+
+    // Spawn threads to send messages
+    for i in 1..=3 {
+        let tx = tx.clone();
+        let rng = Arc::clone(&rng);
+
+        thread::spawn(move || {
+            let mut rng = rng.lock().unwrap();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    for i in 4..=10 {
+        let tx = tx.clone();
+        let rng = Arc::clone(&rng);
+
+        thread::spawn(move || {
+            let mut rng = rng.lock().unwrap();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    // Spawn a separate thread to handle printing
+    thread::spawn(move || {
+        // Receive messages and print them as they arrive
+        while let Ok(msg) = rx.recv() {
+            println!("Got {}", msg);
+        }
+    });
+
+    // Sleep in the main thread to allow other threads to run
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+*/
+
+
+
+
+/*
+// worked, achived both concurrent & yielding / nonblocking
+// Explanatory: the issue is that ThreadRng, which is the type returned by thread_rng(), doesn't implement Send, which means it can't be sent across threads. To work around this limitation, you can create a new random number generator for each thread. However, since you're using rand::thread_rng(), which returns ThreadRng, you'll need to use rand::SeedableRng to create new random number generators for each thread. Here's how you can refactor the code to achieve this:
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use rand::{prelude::*, rngs::StdRng, SeedableRng};
+
+fn main() {
+    let (tx, rx) = mpsc::channel::<String>();
+    let seed = rand::thread_rng().gen();
+    let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(seed)));
+
+    // Spawn threads to send messages
+    for i in 1..=3 {
+        let tx = tx.clone();
+        let rng = Arc::clone(&rng);
+
+        thread::spawn(move || {
+            let mut rng = rng.lock().unwrap();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    for i in 4..=10 {
+        let tx = tx.clone();
+        let seed = rand::thread_rng().gen();
+        let rng = Arc::new(Mutex::new(StdRng::seed_from_u64(seed)));
+
+        thread::spawn(move || {
+            let mut rng = rng.lock().unwrap();
+
+            let val = format!("hi from thread {}", i);
+            tx.send(val).unwrap();
+
+            // Generate a random delay for each thread
+            let delay_ms = rng.gen_range(10..=200);
+            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        });
+    }
+
+    // Spawn a separate thread to handle printing
+    thread::spawn(move || {
+        // Receive messages and print them as they arrive
+        while let Ok(msg) = rx.recv() {
+            println!("Got {}", msg);
+        }
+    });
+
+    // Sleep in the main thread to allow other threads to run
+    std::thread::sleep(std::time::Duration::from_secs(1));
+}
+*/
+/*
+Output 1:
+Got hi from thread 1
+Got hi from thread 4
+Got hi from thread 5
+Got hi from thread 6
+Got hi from thread 8
+Got hi from thread 7
+Got hi from thread 9
+Got hi from thread 10
+Got hi from thread 2
+Got hi from thread 3
+Output 2:
+Got hi from thread 1
+Got hi from thread 6
+Got hi from thread 5
+Got hi from thread 7
+Got hi from thread 8
+Got hi from thread 9
+Got hi from thread 10
+Got hi from thread 4
+Got hi from thread 3
+Got hi from thread 2
+*/
+
+
+
+
+//*
+// we indeed now use total of 3 threads (sender1, sender2, receiver)
+// produced good code now, tips: try make a tokio async version
+// in an attempt to make equivalent example for C chan example:
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+
+
+fn main() {
+    let main_time: std::time::Instant = std::time::Instant::now();
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx2 = tx.clone();
+
+    // Spawn threads to send messages
+    // for i in 1..=3 {
+    //     let tx = tx.clone();
+
+    //     thread::spawn(move || {
+
+    //         let val = format!("hi from thread {}", i);
+    //         if let Err(_) = tx.send(val) {
+    //             println!("failed to sent, reciver dropped");
+    //             return;
+    //         }
+
+    //     });
+    // }
+
+    let sender_thread1 = thread::spawn(move || {
+        println!("This is sender_thread, {:?}", std::thread::current().id());
+        let tx: mpsc::Sender<String> = tx.clone();
+        
+        for i in 1..=3 {
+            let val: String = format!("hi from task {}, thread {:?}", i, std::thread::current().id());
+            match tx.send(val) {
+                Ok(_) => println!("Sent"),
+                Ok(_) => {},
+                Err(e) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Failed to send: {}", e);
+                    // break;
+                }
+            };
+        }
+        println!("sender_thread ({:?}) exit now...", std::thread::current().id());
+    });
+
+
+    // does not terminate
+    // for i in 4..=10 {
+    //     let tx: mpsc::Sender<String> = tx.clone();
+        
+    //     thread::spawn(move || {
+    //         let val = format!("hi from thread {}", i);
+    //         tx.send(val).unwrap();
+    //     });
+    // }
+    
+
+    // this works !!! terminates
+    let sender_thread2 = thread::spawn(move || {
+        println!("This is sender_thread, {:?}", std::thread::current().id());
+        let tx: mpsc::Sender<String> = tx2.clone();
+        
+        for i in 4..=10 {
+            let val: String = format!("hi from task {}, thread {:?}", i, std::thread::current().id());
+            match tx.send(val) {
+                Ok(_) => println!("Sent"),
+                Ok(_) => {},
+                Err(e) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Failed to send: {}", e);
+                    // break;
+                }
+            };
+        }
+        println!("sender_thread ({:?}) exit now...", std::thread::current().id());
+    });
+
+
+    // Approach 1: Spawn a separate thread to handle receiving
+    // BUG: does not wait for sender task !
+    // thread::spawn(move || {
+    //     // Receive messages and print them as they arrive
+    //     while let Ok(msg) = rx.recv() {
+    //         println!("Got {}", msg);
+    //     }
+    // });
+
+
+    // Approach 2: Spawn a separate thread to handle receiving & join the sender thread
+    // let receiver_thread = thread::spawn(move || {
+    //     // Receive messages and print them as they arrive
+    //     while let Ok(msg) = rx.recv() {
+    //         println!("Got {}", msg);
+    //     }
+    // });
+    // sender_thread.join();
+
+
+    // Approach 3: Spawn a separate thread to handle receiving & join the receiver thread
+    let receiver_thread = thread::spawn(move || {
+        // println!("This is receiver_thread");
+        // Receive messages and print them as they arrive
+        // while let Ok(msg) = rx.recv() {
+        //     println!("Got {}", msg);
+        // }
+
+        loop {
+            match rx.recv() {
+                Ok(mes) => println!("Got {}", mes),
+                Err(_) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Channel closed. Nothing to receive, receiver exiting....");
+                    break;
+                }
+            };
+        }
+        
+        // println!("receiver_thread exit now...");
+    });
+    receiver_thread.join();
+    // sender_thread.join();    // doesn't really needed to
+
+    // works
+    // while let Ok(msg) = rx.recv() {
+    //     println!("Got {}", msg);
+    // }
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+    
+}
+//*/
+
+
+
+
+/*
+// putting thread::spawn() inside a for() loop is bad.
+// Conclusion, spawning N threads for N tasks is a really bad approach for performance & control flow
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+
+
+fn main() {
+    let main_time: std::time::Instant = std::time::Instant::now();
+
+    let mut handles = vec![];
+
+    let (tx, rx) = mpsc::channel::<String>();
+
+    // does not terminates
+    // Spawn threads to send messages
+    for i in 1..=3 {
+        let tx = tx.clone();
+        let join_handle = thread::spawn(move || {
+
+            let val = format!("hi from thread {}", i);
+            if let Err(_) = tx.send(val) {
+                println!("failed to sent, reciver dropped");
+                return;
+            }
+            println!("sent");
+
+        });
+        handles.push(join_handle);
+    }
+
+    for h in handles {
+        h.join().unwrap();
+    }
+
+
+    // Approach 3: Spawn a separate thread to handle receiving & join the receiver thread
+    let receiver_thread = thread::spawn(move || {
+        // println!("This is receiver_thread");
+        // Receive messages and print them as they arrive
+        // while let Ok(msg) = rx.recv() {
+        //     println!("Got {}", msg);
+        // }
+
+        loop {
+            match rx.recv() {
+                Ok(mes) => println!("Got {}", mes),
+                Err(_) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Channel closed. Nothing to receive, receiver exiting....");
+                    break;
+                }
+            };
+        }
+        
+        // println!("receiver_thread exit now...");
+    });
+
+    
+    // mutual thread, does not terminates
+    // loop {
+    //     match rx.recv() {
+    //         Ok(mes) => println!("Got {}", mes),
+    //         Err(_) => {
+    //             // The channel is closed, so the receiver should exit
+    //             println!("Channel closed. Nothing to receive, receiver exiting....");
+    //             break;
+    //         }
+    //     };
+    // }
+
+    // receiver_thread.join();
+    // sender_thread.join();    // doesn't really needed to
+
+    // works
+    // while let Ok(msg) = rx.recv() {
+    //     println!("Got {}", msg);
+    // }
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    let elapsed_ms: f64 = duration.as_secs_f64() * 1000.0;
+    println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
+    
+}
+*/
+/*
+Output:
+sent
+sent
+sent
+
+⌛️ Execution time: 376.039µs (0.376039 ms)
+Got hi from thread 1
+Got hi from thread 2
+Got hi from thread 3
+Channel closed. Nothing to receive, receiver exiting....
+*/

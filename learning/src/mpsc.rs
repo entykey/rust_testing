@@ -24,3 +24,16 @@ fn main() {
     // Wait for the sender thread to finish
     sender_thread.join().unwrap();
 }
+/*
+Output:
+Thread ThreadId(2) sending message 1
+Thread ThreadId(1) received message: 1
+Thread ThreadId(2) sending message 2
+Thread ThreadId(1) received message: 2
+Thread ThreadId(2) sending message 3
+Thread ThreadId(1) received message: 3
+Thread ThreadId(2) sending message 4
+Thread ThreadId(1) received message: 4
+Thread ThreadId(2) sending message 5
+Thread ThreadId(1) received message: 5
+*/
