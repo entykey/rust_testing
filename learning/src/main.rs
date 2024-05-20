@@ -3514,6 +3514,7 @@ async fn main() {
 
 
 /*
+// rust inline assembly with Tokio async concurrent parallel
 // use tokio::join! to optimize performance
 use std::arch::asm;
 use tokio::sync::mpsc;
@@ -3576,6 +3577,13 @@ async fn main() {
     let elapsed_ms = duration.as_secs_f64() * 1000.0;
     println!("\n⌛️ Execution time: {:?} ({:.6} ms)", duration, elapsed_ms);
 }
+*/
+/*
+Output:
+Output for first block: 8
+Output for second block: 24
+
+⌛️ Execution time: 135.858µs (0.135858 ms)
 */
 
 
@@ -4349,8 +4357,8 @@ fn main() {
     	});
 		
         // Generate a random delay for each thread
-        let delay_ms = rng.gen_range(10..=100); // Random delay between 1000ms and 3000ms
-        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+        // let delay_ms = rng.gen_range(10..=100); // Random delay between 1000ms and 3000ms
+        // std::thread::sleep(std::time::Duration::from_millis(delay_ms));
 	}
 	
 	// without closing sender, it will deadlock
@@ -4653,7 +4661,7 @@ Got hi from thread 2
 
 
 
-//*
+/*
 // we indeed now use total of 3 threads (sender1, sender2, receiver)
 // produced good code now, tips: try make a tokio async version
 // in an attempt to make equivalent example for C chan example:
@@ -4666,21 +4674,6 @@ fn main() {
 
     let (tx, rx) = mpsc::channel::<String>();
     let tx2 = tx.clone();
-
-    // Spawn threads to send messages
-    // for i in 1..=3 {
-    //     let tx = tx.clone();
-
-    //     thread::spawn(move || {
-
-    //         let val = format!("hi from thread {}", i);
-    //         if let Err(_) = tx.send(val) {
-    //             println!("failed to sent, reciver dropped");
-    //             return;
-    //         }
-
-    //     });
-    // }
 
     let sender_thread1 = thread::spawn(move || {
         println!("This is sender_thread, {:?}", std::thread::current().id());
@@ -4700,19 +4693,7 @@ fn main() {
         }
         println!("sender_thread ({:?}) exit now...", std::thread::current().id());
     });
-
-
-    // does not terminate
-    // for i in 4..=10 {
-    //     let tx: mpsc::Sender<String> = tx.clone();
-        
-    //     thread::spawn(move || {
-    //         let val = format!("hi from thread {}", i);
-    //         tx.send(val).unwrap();
-    //     });
-    // }
     
-
     // this works !!! terminates
     let sender_thread2 = thread::spawn(move || {
         println!("This is sender_thread, {:?}", std::thread::current().id());
@@ -4734,33 +4715,9 @@ fn main() {
     });
 
 
-    // Approach 1: Spawn a separate thread to handle receiving
-    // BUG: does not wait for sender task !
-    // thread::spawn(move || {
-    //     // Receive messages and print them as they arrive
-    //     while let Ok(msg) = rx.recv() {
-    //         println!("Got {}", msg);
-    //     }
-    // });
-
-
-    // Approach 2: Spawn a separate thread to handle receiving & join the sender thread
-    // let receiver_thread = thread::spawn(move || {
-    //     // Receive messages and print them as they arrive
-    //     while let Ok(msg) = rx.recv() {
-    //         println!("Got {}", msg);
-    //     }
-    // });
-    // sender_thread.join();
-
-
-    // Approach 3: Spawn a separate thread to handle receiving & join the receiver thread
+    // Spawn a separate thread to handle receiving & join the receiver thread
     let receiver_thread = thread::spawn(move || {
-        // println!("This is receiver_thread");
-        // Receive messages and print them as they arrive
-        // while let Ok(msg) = rx.recv() {
-        //     println!("Got {}", msg);
-        // }
+        println!("This is receiver_thread");
 
         loop {
             match rx.recv() {
@@ -4773,7 +4730,7 @@ fn main() {
             };
         }
         
-        // println!("receiver_thread exit now...");
+        println!("receiver_thread exit now...");
     });
     receiver_thread.join();
     // sender_thread.join();    // doesn't really needed to
@@ -4789,7 +4746,550 @@ fn main() {
     println!("\n⌛️ Execution time: {:?} ({:?} ms)", duration, elapsed_ms);
     
 }
-//*/
+*/
+/*
+Output:
+This is sender_thread, ThreadId(2)
+This is receiver_thread
+Sent
+Sent
+Sent
+sender_thread (ThreadId(2)) exit now...
+This is sender_thread, ThreadId(3)
+Got hi from task 1, thread ThreadId(2)
+Got hi from task 2, thread ThreadId(2)
+Got hi from task 3, thread ThreadId(2)
+Got hi from task 4, thread ThreadId(3)
+Sent
+Sent
+Sent
+Sent
+Got hi from task 5, thread ThreadId(3)
+Got hi from task 6, thread ThreadId(3)
+Got hi from task 7, thread ThreadId(3)
+Sent
+Sent
+Got hi from task 8, thread ThreadId(3)
+Got hi from task 9, thread ThreadId(3)
+Got hi from task 10, thread ThreadId(3)
+Sent
+sender_thread (ThreadId(3)) exit now...
+Channel closed. Nothing to receive, receiver exiting....
+receiver_thread exit now...
+
+⌛️ Execution time: 490.095µs (0.49009499999999995 ms)
+*/
+
+
+
+
+/*
+// STATUS: deadlock
+use std::sync::{Arc, Mutex, Condvar};
+use std::thread;
+use std::collections::VecDeque;
+use std::time::Duration;
+use std::time::Instant;
+
+fn sender(id: i32, messages: Arc<(Mutex<VecDeque<String>>, Condvar)>) {
+    let (mtx, consumer_cv) = &*messages;
+    let mut messages_queue = mtx.lock().unwrap();
+    
+    for i in (id * 10 - 9)..=(id * 10) {
+        let msg = format!("This is thread {}, message {}", id, i);
+        messages_queue.push_back(msg);
+        consumer_cv.notify_one();
+    }
+}
+
+fn main() {
+    // Start timer
+    let start = Instant::now();
+
+    let messages = Arc::new((Mutex::new(VecDeque::new()), Condvar::new()));
+    let messages_clone = Arc::clone(&messages);
+
+    let mut threads = vec![];
+
+    for i in 1..=3 {
+        let messages_clone = Arc::clone(&messages);
+        threads.push(thread::spawn(move || {
+            sender(i, messages_clone);
+        }));
+    }
+
+    let receiver = thread::spawn(move || {
+        let (mtx, consumer_cv) = &*messages_clone;
+        let mut messages_queue = mtx.lock().unwrap();
+        loop {
+            let timeout = Duration::from_millis(100); // Adjust timeout as needed
+            let result = consumer_cv.wait_timeout(messages_queue, timeout).unwrap();
+            messages_queue = result.0;
+            if !messages_queue.is_empty() {
+                if let Some(msg) = messages_queue.pop_front() {
+                    println!("Got {}", msg);
+                }
+            } else {
+                break;
+            }
+        }
+    });
+
+    for thread in threads {
+        thread.join().unwrap();
+    }
+
+    let (mtx, consumer_cv) = &*messages;
+    let mut messages_queue = mtx.lock().unwrap();
+    *messages_queue = VecDeque::new(); // Clear the queue
+    consumer_cv.notify_one(); // Notify the receiver to exit the loop
+
+    receiver.join().unwrap();
+
+    // Stop timer
+    let duration = start.elapsed();
+    println!(
+        "took {}µs ({}ms) ({}s) to execute",
+        duration.as_micros(),
+        duration.as_millis(),
+        duration.as_secs_f64()
+    );
+}
+*/
+
+
+
+/* 
+// try this new code
+use std::sync::{Arc, Mutex};
+use std::thread;
+use std::sync::mpsc;
+use std::time::Instant;
+
+fn sender(id: i32, sender_channel: mpsc::Sender<String>) {
+    let cur_thread_id = std::thread::current().id();
+    for i in (id * 10 - 9)..=(id * 10) {
+        let msg = format!("This is thread {:?}, message {}", cur_thread_id, i);
+        sender_channel.send(msg).unwrap();
+    }
+}
+
+fn main() {
+    // Start timer
+    let start = Instant::now();
+
+    let (sender_tx, receiver_rx) = mpsc::channel::<String>();
+    let receiver_rx = Arc::new(Mutex::new(receiver_rx));
+
+    let mut threads = vec![];
+
+    for i in 1..=3 {
+        let sender_clone = sender_tx.clone();
+        // let receiver_clone = Arc::clone(&receiver_rx);
+        threads.push(thread::spawn(move || {
+            sender(i, sender_clone);
+        }));
+    }
+
+    let receiver_thread = thread::spawn(move || {
+        loop {
+            let msg = {
+                let receiver_lock = receiver_rx.lock().unwrap();
+                match receiver_lock.recv() {
+                    Ok(msg) => msg,
+                    Err(_) => break,
+                }
+            };
+            println!("Got {}", msg);
+        }
+    });
+
+    for thread in threads {
+        thread.join().unwrap();
+    }
+
+    drop(sender_tx); // Drop the sender to signal the receiver to stop
+    receiver_thread.join().unwrap();
+
+    // Stop timer
+    let duration: std::time::Duration = start.elapsed();
+    println!(
+        "took {}µs ({}ms) ({}s) to execute",
+        duration.as_micros(),
+        duration.as_secs_f64() * 1000.0,
+        duration.as_secs_f64()
+    );
+}
+*/
+/*
+Output 1:
+Got This is thread ThreadId(2), message 1
+Got This is thread ThreadId(3), message 11
+Got This is thread ThreadId(4), message 21
+Got This is thread ThreadId(2), message 2
+Got This is thread ThreadId(2), message 3
+Got This is thread ThreadId(4), message 22
+Got This is thread ThreadId(3), message 12
+Got This is thread ThreadId(2), message 4
+Got This is thread ThreadId(4), message 23
+Got This is thread ThreadId(3), message 13
+Got This is thread ThreadId(2), message 5
+Got This is thread ThreadId(4), message 24
+Got This is thread ThreadId(3), message 14
+Got This is thread ThreadId(2), message 6
+Got This is thread ThreadId(3), message 15
+Got This is thread ThreadId(4), message 25
+Got This is thread ThreadId(2), message 7
+Got This is thread ThreadId(3), message 16
+Got This is thread ThreadId(4), message 26
+Got This is thread ThreadId(2), message 8
+Got This is thread ThreadId(3), message 17
+Got This is thread ThreadId(4), message 27
+Got This is thread ThreadId(2), message 9
+Got This is thread ThreadId(3), message 18
+Got This is thread ThreadId(2), message 10
+Got This is thread ThreadId(4), message 28
+Got This is thread ThreadId(3), message 19
+Got This is thread ThreadId(4), message 29
+Got This is thread ThreadId(3), message 20
+Got This is thread ThreadId(4), message 30
+took 396µs (0.396097ms) (0.000396097s) to execute
+Output 2:
+Got This is thread ThreadId(4), message 21
+Got This is thread ThreadId(3), message 11
+Got This is thread ThreadId(4), message 22
+Got This is thread ThreadId(4), message 23
+Got This is thread ThreadId(4), message 24
+Got This is thread ThreadId(4), message 25
+Got This is thread ThreadId(4), message 26
+Got This is thread ThreadId(4), message 27
+Got This is thread ThreadId(2), message 1
+Got This is thread ThreadId(4), message 28
+Got This is thread ThreadId(2), message 2
+Got This is thread ThreadId(2), message 3
+Got This is thread ThreadId(2), message 4
+Got This is thread ThreadId(3), message 12
+Got This is thread ThreadId(4), message 29
+Got This is thread ThreadId(4), message 30
+Got This is thread ThreadId(2), message 5
+Got This is thread ThreadId(2), message 6
+Got This is thread ThreadId(2), message 7
+Got This is thread ThreadId(2), message 8
+Got This is thread ThreadId(2), message 9
+Got This is thread ThreadId(2), message 10
+Got This is thread ThreadId(3), message 13
+Got This is thread ThreadId(3), message 14
+Got This is thread ThreadId(3), message 15
+Got This is thread ThreadId(3), message 16
+Got This is thread ThreadId(3), message 17
+Got This is thread ThreadId(3), message 18
+Got This is thread ThreadId(3), message 19
+Got This is thread ThreadId(3), message 20
+took 416µs (0.416673ms) (0.000416673s) to execute
+Output 3:
+Got This is thread ThreadId(2), message 1
+Got This is thread ThreadId(4), message 21
+Got This is thread ThreadId(3), message 11
+Got This is thread ThreadId(4), message 22
+Got This is thread ThreadId(2), message 2
+Got This is thread ThreadId(4), message 23
+Got This is thread ThreadId(2), message 3
+Got This is thread ThreadId(4), message 24
+Got This is thread ThreadId(2), message 4
+Got This is thread ThreadId(4), message 25
+Got This is thread ThreadId(2), message 5
+Got This is thread ThreadId(4), message 26
+Got This is thread ThreadId(2), message 6
+Got This is thread ThreadId(4), message 27
+Got This is thread ThreadId(2), message 7
+Got This is thread ThreadId(4), message 28
+Got This is thread ThreadId(3), message 12
+Got This is thread ThreadId(2), message 8
+Got This is thread ThreadId(4), message 29
+Got This is thread ThreadId(3), message 13
+Got This is thread ThreadId(2), message 9
+Got This is thread ThreadId(4), message 30
+Got This is thread ThreadId(2), message 10
+Got This is thread ThreadId(3), message 14
+Got This is thread ThreadId(3), message 15
+Got This is thread ThreadId(3), message 16
+Got This is thread ThreadId(3), message 17
+Got This is thread ThreadId(3), message 18
+Got This is thread ThreadId(3), message 19
+Got This is thread ThreadId(3), message 20
+took 358µs (0.358835ms) (0.000358835s) to execute
+Output 4:
+Got This is thread ThreadId(3), message 11
+Got This is thread ThreadId(2), message 1
+Got This is thread ThreadId(4), message 21
+Got This is thread ThreadId(3), message 12
+Got This is thread ThreadId(3), message 13
+Got This is thread ThreadId(4), message 22
+Got This is thread ThreadId(3), message 14
+Got This is thread ThreadId(4), message 23
+Got This is thread ThreadId(3), message 15
+Got This is thread ThreadId(4), message 24
+Got This is thread ThreadId(3), message 16
+Got This is thread ThreadId(4), message 25
+Got This is thread ThreadId(3), message 17
+Got This is thread ThreadId(4), message 26
+Got This is thread ThreadId(3), message 18
+Got This is thread ThreadId(4), message 27
+Got This is thread ThreadId(2), message 2
+Got This is thread ThreadId(3), message 19
+Got This is thread ThreadId(4), message 28
+Got This is thread ThreadId(2), message 3
+Got This is thread ThreadId(3), message 20
+Got This is thread ThreadId(2), message 4
+Got This is thread ThreadId(4), message 29
+Got This is thread ThreadId(2), message 5
+Got This is thread ThreadId(4), message 30
+Got This is thread ThreadId(2), message 6
+Got This is thread ThreadId(2), message 7
+Got This is thread ThreadId(2), message 8
+Got This is thread ThreadId(2), message 9
+Got This is thread ThreadId(2), message 10
+took 382µs (0.38275400000000004ms) (0.000382754s) to execute
+*/
+
+
+
+
+/*
+// Now let's compare with this approach (our old):
+// we indeed now use total of 4 threads (sender1, sender2, sender3, receiver)
+use std::sync::mpsc;
+use std::thread;
+
+fn main() {
+    let main_time: std::time::Instant = std::time::Instant::now();
+
+    let (tx, rx) = mpsc::channel::<String>();
+    let tx2 = tx.clone();
+    let tx3 = tx.clone();
+
+    let sender_thread1 = thread::spawn(move || {
+        // println!("This is sender_thread, {:?}", std::thread::current().id());
+        let tx: mpsc::Sender<String> = tx.clone();
+        
+        for i in 1..=10 {
+            let val: String = format!("hi from task {}, thread {:?}", i, std::thread::current().id());
+            match tx.send(val) {
+                // Ok(_) => println!("Sent"),
+                Ok(_) => {},
+                Err(e) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Failed to send: {}", e);
+                    // break;
+                }
+            };
+        }
+        // println!("sender_thread ({:?}) exit now...", std::thread::current().id());
+    });
+    
+    let sender_thread2 = thread::spawn(move || {
+        // println!("This is sender_thread, {:?}", std::thread::current().id());
+        let tx: mpsc::Sender<String> = tx2.clone();
+        
+        for i in 11..=20 {
+            let val: String = format!("hi from task {}, thread {:?}", i, std::thread::current().id());
+            match tx.send(val) {
+                // Ok(_) => println!("Sent"),
+                Ok(_) => {},
+                Err(e) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Failed to send: {}", e);
+                    // break;
+                }
+            };
+        }
+        // println!("sender_thread ({:?}) exit now...", std::thread::current().id());
+    });
+
+    let sender_thread3 = thread::spawn(move || {
+        // println!("This is sender_thread, {:?}", std::thread::current().id());
+        let tx: mpsc::Sender<String> = tx3.clone();
+        
+        for i in 21..=30 {
+            let val: String = format!("hi from task {}, thread {:?}", i, std::thread::current().id());
+            match tx.send(val) {
+                // Ok(_) => println!("Sent"),
+                Ok(_) => {},
+                Err(e) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Failed to send: {}", e);
+                    // break;
+                }
+            };
+        }
+        // println!("sender_thread ({:?}) exit now...", std::thread::current().id());
+    });
+
+
+    // Spawn a separate thread to handle receiving & join the receiver thread
+    let receiver_thread = thread::spawn(move || {
+        // println!("This is receiver_thread");
+
+        loop {
+            match rx.recv() {
+                Ok(mes) => println!("Got {}", mes),
+                Err(_) => {
+                    // The channel is closed, so the receiver should exit
+                    println!("Channel closed. Nothing to receive, receiver exiting....");
+                    break;
+                }
+            };
+        }
+        
+        // println!("receiver_thread exit now...");
+    });
+    // must have
+    receiver_thread.join();
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    println!(
+        "took {}µs ({}ms) ({}s) to execute",
+        duration.as_micros(),
+        duration.as_secs_f64() * 1000.0,
+        duration.as_secs_f64()
+    );
+}
+*/
+/*
+Output 1:
+Got hi from task 1, thread ThreadId(2)
+Got hi from task 11, thread ThreadId(3)
+Got hi from task 2, thread ThreadId(2)
+Got hi from task 3, thread ThreadId(2)
+Got hi from task 4, thread ThreadId(2)
+Got hi from task 5, thread ThreadId(2)
+Got hi from task 6, thread ThreadId(2)
+Got hi from task 7, thread ThreadId(2)
+Got hi from task 8, thread ThreadId(2)
+Got hi from task 12, thread ThreadId(3)
+Got hi from task 9, thread ThreadId(2)
+Got hi from task 13, thread ThreadId(3)
+Got hi from task 10, thread ThreadId(2)
+Got hi from task 14, thread ThreadId(3)
+Got hi from task 15, thread ThreadId(3)
+Got hi from task 16, thread ThreadId(3)
+Got hi from task 17, thread ThreadId(3)
+Got hi from task 18, thread ThreadId(3)
+Got hi from task 19, thread ThreadId(3)
+Got hi from task 20, thread ThreadId(3)
+Got hi from task 21, thread ThreadId(4)
+Got hi from task 22, thread ThreadId(4)
+Got hi from task 23, thread ThreadId(4)
+Got hi from task 24, thread ThreadId(4)
+Got hi from task 25, thread ThreadId(4)
+Got hi from task 26, thread ThreadId(4)
+Got hi from task 27, thread ThreadId(4)
+Got hi from task 28, thread ThreadId(4)
+Got hi from task 29, thread ThreadId(4)
+Got hi from task 30, thread ThreadId(4)
+Channel closed. Nothing to receive, receiver exiting....
+took 394µs (0.39410999999999996ms) (0.00039411s) to execute
+Output 2:
+Got hi from task 1, thread ThreadId(2)
+Got hi from task 21, thread ThreadId(4)
+Got hi from task 11, thread ThreadId(3)
+Got hi from task 2, thread ThreadId(2)
+Got hi from task 3, thread ThreadId(2)
+Got hi from task 4, thread ThreadId(2)
+Got hi from task 5, thread ThreadId(2)
+Got hi from task 6, thread ThreadId(2)
+Got hi from task 7, thread ThreadId(2)
+Got hi from task 22, thread ThreadId(4)
+Got hi from task 8, thread ThreadId(2)
+Got hi from task 12, thread ThreadId(3)
+Got hi from task 9, thread ThreadId(2)
+Got hi from task 10, thread ThreadId(2)
+Got hi from task 23, thread ThreadId(4)
+Got hi from task 24, thread ThreadId(4)
+Got hi from task 25, thread ThreadId(4)
+Got hi from task 26, thread ThreadId(4)
+Got hi from task 27, thread ThreadId(4)
+Got hi from task 13, thread ThreadId(3)
+Got hi from task 28, thread ThreadId(4)
+Got hi from task 14, thread ThreadId(3)
+Got hi from task 29, thread ThreadId(4)
+Got hi from task 15, thread ThreadId(3)
+Got hi from task 30, thread ThreadId(4)
+Got hi from task 16, thread ThreadId(3)
+Got hi from task 17, thread ThreadId(3)
+Got hi from task 18, thread ThreadId(3)
+Got hi from task 19, thread ThreadId(3)
+Got hi from task 20, thread ThreadId(3)
+Channel closed. Nothing to receive, receiver exiting....
+took 367µs (0.367687ms) (0.000367687s) to execute
+Output 3:
+Got hi from task 1, thread ThreadId(2)
+Got hi from task 11, thread ThreadId(3)
+Got hi from task 2, thread ThreadId(2)
+Got hi from task 3, thread ThreadId(2)
+Got hi from task 4, thread ThreadId(2)
+Got hi from task 5, thread ThreadId(2)
+Got hi from task 6, thread ThreadId(2)
+Got hi from task 7, thread ThreadId(2)
+Got hi from task 8, thread ThreadId(2)
+Got hi from task 9, thread ThreadId(2)
+Got hi from task 10, thread ThreadId(2)
+Got hi from task 12, thread ThreadId(3)
+Got hi from task 13, thread ThreadId(3)
+Got hi from task 14, thread ThreadId(3)
+Got hi from task 15, thread ThreadId(3)
+Got hi from task 16, thread ThreadId(3)
+Got hi from task 17, thread ThreadId(3)
+Got hi from task 18, thread ThreadId(3)
+Got hi from task 19, thread ThreadId(3)
+Got hi from task 20, thread ThreadId(3)
+Got hi from task 21, thread ThreadId(4)
+Got hi from task 22, thread ThreadId(4)
+Got hi from task 23, thread ThreadId(4)
+Got hi from task 24, thread ThreadId(4)
+Got hi from task 25, thread ThreadId(4)
+Got hi from task 26, thread ThreadId(4)
+Got hi from task 27, thread ThreadId(4)
+Got hi from task 28, thread ThreadId(4)
+Got hi from task 29, thread ThreadId(4)
+Got hi from task 30, thread ThreadId(4)
+Channel closed. Nothing to receive, receiver exiting....
+took 845µs (0.845077ms) (0.000845077s) to execute
+Output 4:
+Got hi from task 11, thread ThreadId(3)
+Got hi from task 1, thread ThreadId(2)
+Got hi from task 12, thread ThreadId(3)
+Got hi from task 13, thread ThreadId(3)
+Got hi from task 14, thread ThreadId(3)
+Got hi from task 21, thread ThreadId(4)
+Got hi from task 22, thread ThreadId(4)
+Got hi from task 23, thread ThreadId(4)
+Got hi from task 24, thread ThreadId(4)
+Got hi from task 25, thread ThreadId(4)
+Got hi from task 26, thread ThreadId(4)
+Got hi from task 27, thread ThreadId(4)
+Got hi from task 28, thread ThreadId(4)
+Got hi from task 29, thread ThreadId(4)
+Got hi from task 30, thread ThreadId(4)
+Got hi from task 15, thread ThreadId(3)
+Got hi from task 16, thread ThreadId(3)
+Got hi from task 17, thread ThreadId(3)
+Got hi from task 18, thread ThreadId(3)
+Got hi from task 19, thread ThreadId(3)
+Got hi from task 20, thread ThreadId(3)
+Got hi from task 2, thread ThreadId(2)
+Got hi from task 3, thread ThreadId(2)
+Got hi from task 4, thread ThreadId(2)
+Got hi from task 5, thread ThreadId(2)
+Got hi from task 6, thread ThreadId(2)
+Got hi from task 7, thread ThreadId(2)
+Got hi from task 8, thread ThreadId(2)
+Got hi from task 9, thread ThreadId(2)
+Got hi from task 10, thread ThreadId(2)
+Channel closed. Nothing to receive, receiver exiting....
+took 396µs (0.39621300000000004ms) (0.000396213s) to execute
+*/
 
 
 
@@ -4892,3 +5392,1677 @@ Got hi from thread 2
 Got hi from thread 3
 Channel closed. Nothing to receive, receiver exiting....
 */
+
+
+
+
+/*
+// our original worker_pool mpsc example:
+use std::thread;
+use std::sync::{Arc, Mutex};
+use std::sync::mpsc;
+
+const NUM_WORKERS: usize = 4;
+const NUM_TASKS: usize = 20;
+
+fn main() {
+    let main_time = std::time::Instant::now();
+
+    let (task_tx, task_rx) = mpsc::channel();
+    let task_rx = Arc::new(Mutex::new(task_rx));
+
+    let (result_tx, result_rx) = mpsc::channel();
+
+    // Create worker threads
+    for id in 0..NUM_WORKERS {
+        let task_rx = task_rx.clone();
+        let result_tx = result_tx.clone();
+
+        thread::spawn(move || {
+            println!("Worker {} is waiting for tasks.", id);
+
+            loop {
+                // Get the next task from the task channel
+                let task = match task_rx.lock().unwrap().recv() {
+                    Ok(task) => task,
+                    Err(_) => {
+                        // The channel is closed, so the worker should exit
+                        println!("Worker {} is exiting.", id);
+                        break;
+                    }
+                };
+
+                // Process the task
+                println!("Worker {} is processing task: {}", id, task);
+
+                // Simulate some work
+                // thread::sleep(std::time::Duration::from_secs(1));
+
+                // Send the result back to the result channel
+                result_tx.send(format!("Result of task {}: done", task)).unwrap();
+            }
+        });
+    }
+
+    // Submit tasks to the worker pool
+    for task_id in 0..NUM_TASKS {
+        task_tx.send(task_id).unwrap();
+    }
+
+    // Close the task channel to signal the workers to exit
+    drop(task_tx);
+
+    // Collect results from the workers
+    for _ in 0..NUM_TASKS {
+        let result = result_rx.recv().unwrap();
+        println!("Received result: {}", result);
+    }
+
+    // End of main
+    let duration: std::time::Duration = main_time.elapsed();
+    println!(
+        "took {}µs ({}ms) ({}s) to execute",
+        duration.as_micros(),
+        duration.as_secs_f64() * 1000.0,
+        duration.as_secs_f64()
+    );
+}
+*/
+/*
+Output:
+Worker 0 is waiting for tasks.
+Worker 0 is processing task: 0
+Worker 3 is waiting for tasks.
+Worker 0 is processing task: 1
+Worker 0 is processing task: 3
+Worker 0 is processing task: 4
+Worker 0 is processing task: 5
+Worker 0 is processing task: 6
+Worker 0 is processing task: 7
+Worker 0 is processing task: 8
+Worker 0 is processing task: 9
+Worker 0 is processing task: 10
+Worker 0 is processing task: 11
+Worker 0 is processing task: 12
+Worker 0 is processing task: 13
+Worker 0 is processing task: 14
+Worker 0 is processing task: 15
+Worker 0 is processing task: 16
+Worker 0 is processing task: 17
+Worker 0 is processing task: 18
+Worker 0 is processing task: 19
+Worker 0 is exiting.
+Worker 1 is waiting for tasks.
+Worker 1 is exiting.
+Worker 2 is waiting for tasks.
+Worker 2 is exiting.
+Worker 3 is processing task: 2
+Worker 3 is exiting.
+Received result: Result of task 0: done
+Received result: Result of task 1: done
+Received result: Result of task 3: done
+Received result: Result of task 4: done
+Received result: Result of task 5: done
+Received result: Result of task 6: done
+Received result: Result of task 7: done
+Received result: Result of task 8: done
+Received result: Result of task 9: done
+Received result: Result of task 10: done
+Received result: Result of task 11: done
+Received result: Result of task 12: done
+Received result: Result of task 13: done
+Received result: Result of task 14: done
+Received result: Result of task 15: done
+Received result: Result of task 16: done
+Received result: Result of task 17: done
+Received result: Result of task 18: done
+Received result: Result of task 19: done
+Received result: Result of task 2: done
+took 558µs (0.5587040000000001ms) (0.000558704s) to execute
+*/
+
+
+
+
+
+/*
+// trying react's websocket communication
+// main.rs
+use tokio::net::TcpListener;
+use tokio_tungstenite::*;
+use futures::StreamExt;
+// use tungstenite::Message;
+use tungstenite::protocol::Message as TungsteniteMessage;
+use tungstenite::Error;
+use futures::SinkExt;
+
+
+#[derive(Debug)]
+enum Message {
+    Text(String),
+    Binary(Vec<u8>),
+}
+
+impl From<TungsteniteMessage> for Message {
+    fn from(msg: TungsteniteMessage) -> Self {
+        match msg {
+            TungsteniteMessage::Text(text) => Message::Text(text),
+            TungsteniteMessage::Binary(bin) => Message::Binary(bin),
+            _ => {
+                println!("Unsupported message type: {:?}", msg);
+                Message::Text(String::from("Unsupported message type"))
+            }
+        }
+    }
+}
+
+impl Into<TungsteniteMessage> for Message {
+    fn into(self) -> TungsteniteMessage {
+        match self {
+            Message::Text(text) => TungsteniteMessage::Text(text),
+            Message::Binary(bin) => TungsteniteMessage::Binary(bin),
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(&addr).await.expect("Failed to bind");
+
+    println!("Server running on {}", addr);
+
+    // loop {
+    //     let (stream, _) = listener.accept().await.expect("Failed to accept");
+    //     tokio::spawn(handle_connection(stream));
+    // }
+    while let Ok((stream, client_addr)) = listener.accept().await {
+        tokio::spawn(handle_connection(stream, client_addr));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream, client_addr: std::net::SocketAddr) {
+    let ws_stream = tokio_tungstenite::accept_async(stream)
+        .await
+        .expect("Error during WebSocket handshake");
+
+    let (tx, rx) = futures_channel::mpsc::unbounded();
+    // let (write, read) = ws_stream.split();
+    let (write, read) = ws_stream.split();
+
+    tokio::spawn(async {
+        read.for_each(|msg| async {
+            match msg {
+                Ok(msg) => {
+                    let message: Message = msg.into();
+                    println!("Received message: {:?}", message);
+                    // Handle incoming message here
+                    let response = format!("Hi {}", client_addr);
+                    write.send(Message::Text(response).into()).await.unwrap();
+                }
+                Err(Error::ConnectionClosed) => {
+                    println!("Connection closed");
+                }
+                Err(e) => {
+                    println!("Error receiving message: {}", e);
+                }
+            }
+        }).await;
+    });
+
+    // Example of sending a message back to the client
+    // write.send(Message::Text("Hello from Rust!".into())).await.unwrap();
+}
+
+*/
+
+/*
+// status: WORKED
+// implemented: connection accepting, messaging, send back to sender
+use futures_channel::mpsc::{unbounded, UnboundedSender};
+use futures_util::{future, StreamExt, SinkExt, TryStreamExt};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+
+type Tx = UnboundedSender<Message>;
+type PeerMap = Arc<Mutex<HashMap<std::net::SocketAddr, Tx>>>;
+
+#[tokio::main]
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("Failed to bind");
+    let peer_map: PeerMap = Arc::new(Mutex::new(HashMap::new()));
+
+    println!("WebSocket server is running on ws://127.0.0.1:8080");
+
+    while let Ok((stream, addr)) = listener.accept().await {
+        let peer_map_clone = peer_map.clone();
+        tokio::spawn(handle_connection(stream, addr, peer_map_clone));
+    }
+}
+
+async fn handle_connection(stream: TcpStream, addr: std::net::SocketAddr, peer_map: PeerMap) {
+    if let Ok(ws_stream) = accept_async(stream).await {
+        println!("Client connected from: {}", addr);
+
+        let (tx, rx) = unbounded();
+
+        // Insert the sender into the PeerMap
+        peer_map.lock().unwrap().insert(addr, tx.clone());
+
+        let (write, read) = ws_stream.split();
+
+        let broadcast_incoming = read.try_for_each(|msg| {
+            println!("Received message from {}: {}", addr, msg.to_text().unwrap());
+
+            let peers = peer_map.lock().unwrap();
+
+            // Broadcast message to everyone except the sender.
+            let broadcast_recipients = peers
+                .iter()
+                .filter(|(peer_addr, _)| peer_addr != &&addr)
+                .map(|(_, ws_sink)| ws_sink);
+
+            for recp in broadcast_recipients {
+                recp.unbounded_send(msg.clone()).unwrap();
+            }
+
+            // Send message back to the sender with a greeting
+            let sender_tx = peers.get(&addr).unwrap();
+            let greeting_message = format!("Hi client {}!", addr);
+            sender_tx.unbounded_send(Message::Text(greeting_message)).unwrap();
+
+            future::ok(())
+        });
+
+        let receive_from_others = rx.map(Ok).forward(write);
+
+        futures_util::pin_mut!(broadcast_incoming, receive_from_others);
+        future::select(broadcast_incoming, receive_from_others).await;
+
+        println!("{} disconnected", &addr);
+        peer_map.lock().unwrap().remove(&addr);
+    }
+}
+*/
+
+
+
+
+/*
+// status: not receiving message or response back
+// trying to implement welcome message
+use futures_channel::mpsc::{unbounded, UnboundedSender};
+use futures_util::{future, StreamExt, SinkExt, TryStreamExt};
+use tokio::sync::Mutex;
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+// use std::sync::{Arc, Mutex};    // => future cannot be sent between threads safely
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+
+type Tx = UnboundedSender<Message>;
+type PeerMap = Arc<Mutex<HashMap<SocketAddr, Tx>>>;
+
+#[tokio::main]
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("Failed to bind");
+    let peer_map: PeerMap = Arc::new(Mutex::new(HashMap::new()));
+    let peer_map_clone = Arc::clone(&peer_map);
+
+    println!("WebSocket server is running on ws://127.0.0.1:8080");
+
+    while let Ok((stream, addr)) = listener.accept().await {
+        let peer_map_clone = peer_map.clone();
+        tokio::spawn(async move {
+            if let Err(e) = handle_connection(stream, addr, &peer_map_clone).await {
+                eprintln!("Error handling connection: {}", e);
+            }
+        });
+    }
+}
+
+// added "&" => &PeerMap to fix "cannot move out of captured outer ...""
+async fn handle_connection(
+    stream: TcpStream,
+    addr: SocketAddr,
+    peer_map: &PeerMap,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let ws_stream = accept_async(stream).await?;
+
+    println!("Client connected from: {}", addr);
+
+    // Send welcome message to all peer clients
+    // let peers = peer_map.lock().unwrap();   // std::sync::Mutex
+    let peers = peer_map.lock().await;
+    let welcome_message = format!("Welcome client {} to the WebSocket server", addr);
+    for (_, tx) in peers.iter() {
+        tx.unbounded_send(Message::Text(welcome_message.clone()))?;
+    }
+
+    let (tx, rx) = unbounded();
+    // let mut peers = peer_map.lock().unwrap();    // std::sync::Mutex
+    let mut peers = peer_map.lock().await;
+    peers.insert(addr, tx.clone());
+
+    let (write, read) = ws_stream.split();
+
+    /*
+    let broadcast_incoming = read.try_for_each(|msg| {
+        println!("Received message from {}: {}", addr, msg.to_text().unwrap());
+
+        let peers = peer_map.lock().unwrap();
+
+        let broadcast_recipients = peers
+            .iter()
+            .filter(|(peer_addr, _)| peer_addr != &&addr)
+            .map(|(_, ws_sink)| ws_sink);
+
+        for recp in broadcast_recipients {
+            recp.unbounded_send(msg.clone())?;
+        }
+
+        Ok(())
+    });
+    */
+
+    let broadcast_incoming = read.try_for_each(|msg| {
+        async move {
+            println!("Received message from {}: {}", addr, msg.to_text().unwrap());
+    
+            // let peers = peer_map.lock().unwrap();   // std::sync::Mutex
+            let peers = peer_map.lock().await;
+    
+            let broadcast_recipients = peers
+                .iter()
+                .filter(|(peer_addr, _)| peer_addr != &&addr)
+                .map(|(_, ws_sink)| ws_sink);
+    
+            for recp in broadcast_recipients {
+                if let Err(err) = recp.unbounded_send(msg.clone()) {
+                    eprintln!("Error sending message: {}", err);
+                }
+            }
+
+            // Send message back to the sender with a greeting
+            let sender_tx = peers.get(&addr).unwrap();
+            let greeting_message = format!("Hi client {}!", addr);
+            sender_tx.unbounded_send(Message::Text(greeting_message)).unwrap();
+
+            // future::ok(())
+    
+            Ok(())
+        }
+    });
+
+    let receive_from_others = rx.map(Ok).forward(write);
+
+        futures_util::pin_mut!(broadcast_incoming, receive_from_others);
+        future::select(broadcast_incoming, receive_from_others).await;
+
+        println!("{} disconnected", &addr);
+        peer_map.lock().await.remove(&addr);
+
+    // let receive_from_others = rx.map(Ok).forward(write);
+
+    // broadcast_incoming.await?;
+    // receive_from_others.await?;
+
+    println!("{} disconnected", &addr);
+    peers.remove(&addr);
+
+    Ok(())
+}
+*/
+
+
+
+/*
+// still fails
+use futures_channel::mpsc::{unbounded, UnboundedSender};
+use futures_util::{SinkExt, StreamExt, TryStreamExt};
+use std::collections::HashMap;
+use std::net::SocketAddr;
+use std::sync::Arc;
+use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use tokio::sync::Mutex;
+use futures_util::future::{Either, BoxFuture};
+use futures_util::FutureExt;
+
+type Tx = UnboundedSender<Message>;
+type PeerMap = Arc<Mutex<HashMap<SocketAddr, Tx>>>;
+
+#[tokio::main]
+async fn main() {
+    let listener = TcpListener::bind("127.0.0.1:8080")
+        .await
+        .expect("Failed to bind");
+    let peer_map: PeerMap = Arc::new(Mutex::new(HashMap::new()));
+
+    println!("WebSocket server is running on ws://127.0.0.1:8080");
+
+    while let Ok((stream, addr)) = listener.accept().await {
+        let peer_map = Arc::clone(&peer_map);
+        tokio::spawn(async move {
+            if let Err(e) = handle_connection(stream, addr, peer_map).await {
+                eprintln!("Error handling connection: {}", e);
+            }
+        });
+    }
+}
+
+async fn handle_connection(
+    stream: TcpStream,
+    addr: SocketAddr,
+    peer_map: PeerMap,
+) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let ws_stream = accept_async(stream).await?;
+
+    println!("Client connected from: {}", addr);
+
+    // Send welcome message to the client
+    let welcome_message = format!("Welcome client {} to the WebSocket server", addr);
+    send_message(&peer_map, &addr, Message::Text(welcome_message)).await?;
+
+    let (tx, rx) = unbounded();
+    peer_map.lock().await.insert(addr, tx);
+
+    let (write, read) = ws_stream.split();
+
+    let incoming_messages = read.try_for_each(|msg| async {
+        println!("Received message from {}: {}", addr, msg);
+
+        // Broadcast the message to all other clients
+        let peer_map = peer_map.lock().await;
+        let broadcast_recipients: Vec<_> = peer_map.iter()
+            .filter(|(peer_addr, _)| **peer_addr != addr)
+            .map(|(_, tx)| tx.send(msg.clone()))
+            .collect();
+
+        for send_result in broadcast_recipients {
+            if let Err(e) = send_result.await {
+                eprintln!("Error sending message to client: {}", e);
+            }
+        }
+
+        Ok(())
+    });
+
+    let outgoing_messages = rx.map(Ok).forward(write);
+
+    let result = futures_util::future::select(
+        incoming_messages.boxed::<Box<dyn std::error::Error + Send + Sync>>(), 
+        outgoing_messages.boxed::<Box<dyn std::error::Error + Send + Sync>>()
+    ).await;
+
+    match result {
+        Either::Left((err, _)) => {
+            eprintln!("Error handling WebSocket connection with client {}: {:?}", addr, err);
+        }
+        Either::Right((err, _)) => {
+            eprintln!("Error handling WebSocket connection with client {}: {:?}", addr, err);
+        }
+    }
+
+    peer_map.lock().await.remove(&addr);
+    println!("Client disconnected: {}", addr);
+
+    Ok(())
+}
+
+async fn send_message(peer_map: &PeerMap, addr: &SocketAddr, message: Message) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    let mut peer_map = peer_map.lock().await;
+    if let Some(tx) = peer_map.get_mut(addr) {
+        tx.unbounded_send(message)?;
+    } else {
+        return Err("Client not found in peer map".into());
+    }
+    Ok(())
+}
+*/
+
+
+
+
+/*
+// PhantomData example in type infering practice for generic repository pattern desire
+use std::marker::PhantomData;
+
+// Define a custom type
+struct User;
+
+// Define a trait to get the type name
+trait TypeName {
+    fn type_name() -> &'static str;
+}
+
+// Implement the TypeName trait for the User type
+impl TypeName for User {
+    fn type_name() -> &'static str {
+        "User"
+    }
+}
+
+// Define a generic struct with a PhantomData field
+struct MyGenericStruct<T> {
+    phantom: PhantomData<T>,
+}
+
+// Implement a function to print the type name
+fn print_type_name<T: TypeName>() {
+    println!("Type name: {}", T::type_name());
+}
+
+fn main() {
+    // Create an instance of MyGenericStruct with User as the type parameter
+    let my_user = MyGenericStruct::<User> { phantom: PhantomData };
+
+    // Call the print_type_name function with User as the type parameter
+    print_type_name::<User>();
+}
+*/
+
+
+
+/*
+// 3 errors: no method named `lock` found for struct `Arc<HashMap<usize, SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>>>` in the current scope
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Task {
+    id: usize,
+    text: String,
+    status: String,
+}
+
+#[tokio::main]
+async fn main() {
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind");
+    let clients: Arc<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>> = Arc::new(HashMap::new());
+    let tasks: Arc<HashMap<usize, Task>> = Arc::new(HashMap::new());
+    let task_id = Arc::new(tokio::sync::Mutex::new(0));
+
+    loop {
+        let (stream, _) = listener.accept().await.expect("Failed to accept");
+        let clients = Arc::clone(&clients);
+        let tasks = Arc::clone(&tasks);
+        let task_id = Arc::clone(&task_id);
+
+        tokio::spawn(async move {
+            let ws_stream = accept_async(stream).await.expect("Error during WebSocket handshake");
+            let (sink, mut stream) = ws_stream.split();
+            let mut client_id = 0;
+
+            {
+                let mut clients = clients.lock().await;
+                client_id = clients.len() + 1;
+                clients.insert(client_id, sink);
+            }
+
+            // Send current tasks to the newly connected client
+            for task in tasks.values() {
+                if let Ok(serialized_task) = serde_json::to_string(&task) {
+                    if let Err(e) = clients[&client_id].send(Message::Text(serialized_task)).await {
+                        eprintln!("Error sending message to client: {:?}", e);
+                    }
+                }
+            }
+
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(msg) => {
+                        if let Message::Text(text) = msg {
+                            if let Ok(received_task) = serde_json::from_str::<Task>(&text) {
+                                let mut tasks = tasks.lock().await;
+                                match received_task.status.as_str() {
+                                    "create" => {
+                                        let mut task_id = task_id.lock().await;
+                                        *task_id += 1;
+                                        received_task.id = *task_id;
+                                        tasks.insert(received_task.id, received_task.clone());
+                                    }
+                                    "update" => {
+                                        if tasks.contains_key(&received_task.id) {
+                                            tasks.insert(received_task.id, received_task.clone());
+                                        }
+                                    }
+                                    "delete" => {
+                                        tasks.remove(&received_task.id);
+                                    }
+                                    _ => {}
+                                }
+                                if let Ok(serialized_task) = serde_json::to_string(&received_task) {
+                                    for client in clients.values() {
+                                        if let Err(e) = client.send(Message::Text(serialized_task.clone())).await {
+                                            eprintln!("Error sending message to client: {:?}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error receiving message: {:?}", e);
+                        break;
+                    }
+                }
+            }
+
+            let mut clients = clients.lock().await;
+            clients.remove(&client_id);
+        });
+    }
+}
+*/
+
+
+
+
+/*
+// 1 error remaining:
+error[E0599]: no method named `lock` found for mutable reference `&mut HashMap<usize, SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>>` in the current scope
+    --> learning/src/main.rs:6124:55
+     |
+6124 | ...       if let Err(e) = clients.get_mut().lock().await[&client_id].send(Message::...
+     |                           -------           ^^^^ method not found in `&mut HashMap<usize, SplitSink<WebSocketStream<TcpStream>, Message>>`
+     |                           |
+     |                           method `lock` is available on `&mut tokio::sync::Mutex<HashMap<usize, SplitSink<WebSocketStream<tokio::net::TcpStream>, Message>>>`
+
+For more information about this error, try `rustc --explain E0599`.
+warning: `learning` (bin "learning") generated 1 warning
+error: could not compile `learning` (bin "learning") due to 1 previous error; 1 warning emitted
+*/
+
+// Explanatory (for previous code with 3 errors): It seems we have mistakenly used lock() on Arc instances directly, which is incorrect. We should first dereference Arc to access the HashMap and then use lock() on the resulting Mutex. Let's correct that:
+/*
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
+use tokio::sync::Mutex;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Task {
+    id: usize,
+    text: String,
+    status: String,
+}
+
+#[tokio::main]
+async fn main() {
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind");
+    let clients: Arc<Mutex<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let tasks: Arc<Mutex<HashMap<usize, Task>>> = Arc::new(Mutex::new(HashMap::new()));
+    let task_id = Arc::new(Mutex::new(0));
+
+    loop {
+        let (stream, _) = listener.accept().await.expect("Failed to accept");
+        let clients: Arc<Mutex<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>> = Arc::clone(&clients);
+        let tasks = Arc::clone(&tasks);
+        let task_id = Arc::clone(&task_id);
+
+        tokio::spawn(async move {
+            let ws_stream = accept_async(stream).await.expect("Error during WebSocket handshake");
+            let (sink, mut stream) = ws_stream.split();
+            let mut client_id = 0;
+
+            {
+                let mut clients: tokio::sync::MutexGuard<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>> = clients.lock().await;
+                client_id = clients.len() + 1;
+                clients.insert(client_id, sink);
+            }
+
+            // Send current tasks to the newly connected client
+            for task in tasks.lock().await.values() {
+                if let Ok(serialized_task) = serde_json::to_string(&task) {
+                    if let Err(e) = clients.get_mut().lock().await[&client_id].send(Message::Text(serialized_task)).await {
+                        eprintln!("Error sending message to client: {:?}", e);
+                    }
+                }
+            }
+
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(msg) => {
+                        if let Message::Text(text) = msg {
+                            if let Ok(mut received_task) = serde_json::from_str::<Task>(&text) {
+                                let mut tasks = tasks.lock().await;
+                                match received_task.status.as_str() {
+                                    "create" => {
+                                        let mut task_id = task_id.lock().await;
+                                        *task_id += 1;
+                                        received_task.id = *task_id;
+                                        tasks.insert(received_task.id, received_task.clone());
+                                    }
+                                    "update" => {
+                                        if tasks.contains_key(&received_task.id) {
+                                            tasks.insert(received_task.id, received_task.clone());
+                                        }
+                                    }
+                                    "delete" => {
+                                        tasks.remove(&received_task.id);
+                                    }
+                                    _ => {}
+                                }
+                                if let Ok(serialized_task) = serde_json::to_string(&received_task) {
+                                    for client in clients.lock().await.values() {
+                                        if let Err(e) = client.send(Message::Text(serialized_task.clone())).await {
+                                            eprintln!("Error sending message to client: {:?}", e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error receiving message: {:?}", e);
+                        break;
+                    }
+                }
+            }
+
+            let mut clients = clients.lock().await;
+            clients.remove(&client_id);
+        });
+    }
+}
+*/
+
+
+
+
+/*
+// Final solution for tokio_tungstenite todo
+
+// Explanatory: It seems the issue arises because lock() is being called on a mutable reference to HashMap, which doesn't have a lock() method. Instead, you should call lock() on the Mutex itself. Let's correct that now
+// Implement STATUS: compiled for now, allowed mutiple clients
+// to connect, realtime collaborative text editing worked,
+// but the todo tasks are not syncing with each clients,
+// it's different list in each connected client,
+// and the delete method also does not work.
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::net::TcpListener;
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Task {
+    id: usize,
+    text: String,
+    status: String,
+}
+
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+#[serde(untagged)]
+enum PrintableMessage {
+    Text(String),
+    Binary(Vec<u8>),
+    // Add more variants as needed
+}
+
+impl From<Message> for PrintableMessage {
+    fn from(msg: Message) -> Self {
+        match msg {
+            Message::Text(text) => PrintableMessage::Text(text),
+            Message::Binary(bin_data) => PrintableMessage::Binary(bin_data),
+            // Handle more variants if necessary
+            _ => unimplemented!(), // Ignore other variants
+            // will print "thread 'tokio-runtime-worker' panicked at learning/src/main.rs:6232:18: not implemented" when a client disconnect
+        }
+    }
+}
+
+impl Into<Message> for PrintableMessage {
+    fn into(self) -> Message {
+        match self {
+            PrintableMessage::Text(text) => Message::Text(text),
+            PrintableMessage::Binary(bin_data) => Message::Binary(bin_data),
+            // Handle more variants if necessary
+        }
+    }
+}
+
+
+#[tokio::main]
+async fn main() {
+
+    let addr = "127.0.0.1:8080";
+    let listener: TcpListener = TcpListener::bind(addr).await.expect("Failed to bind");
+    let clients: Arc<Mutex<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let tasks: Arc<Mutex<HashMap<usize, Task>>> = Arc::new(Mutex::new(HashMap::new()));
+    let task_id: Arc<Mutex<usize>> = Arc::new(Mutex::new(0));
+
+    loop {
+        let (stream, peer_socket_addr) = listener.accept().await.expect("Failed to accept");
+        println!("accepted a connection from: {}", peer_socket_addr);
+        let clients: Arc<Mutex<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>> = Arc::clone(&clients);
+        let tasks: Arc<Mutex<HashMap<usize, Task>>> = Arc::clone(&tasks);
+        let task_id: Arc<Mutex<usize>> = Arc::clone(&task_id);
+
+        tokio::spawn(async move {
+
+            let ws_stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream> = accept_async(stream).await.expect("Error during WebSocket handshake");
+            let (sink, mut stream) = ws_stream.split();
+            let mut client_id = 0;
+
+            {
+                let mut clients: tokio::sync::MutexGuard<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>> = clients.lock().await;
+                client_id = clients.len() + 1;
+                clients.insert(client_id, sink);
+            }
+
+            // Send current tasks to the newly connected client
+            for task in tasks.lock().await.values() {
+                if let Ok(serialized_task) = serde_json::to_string(&task) {
+                    if let Some(mut client) = clients.lock().await.get_mut(&client_id) {
+                        if let Err(e) = client.send(Message::Text(serialized_task)).await {
+                            eprintln!("Error sending message to client: {:?}", e);
+                        }
+                    }
+                }
+            }
+            
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(msg) => {
+
+                        let printable_msg: PrintableMessage = msg.clone().into();
+                        println!("Received a message: {}", serde_json::to_string_pretty(&printable_msg).unwrap());
+            
+                        match msg {
+                            Message::Text(text) => {
+
+                                // Attempt to deserialize the text into a Task object
+                                if let Ok(mut received_task) = serde_json::from_str::<Task>(&text) {
+
+                                    println!("message is Text: {:?}", received_task);
+                                    println!("Json pretty:\n{}", serde_json::to_string_pretty(&received_task).unwrap());
+
+                                    let mut tasks: tokio::sync::MutexGuard<HashMap<usize, Task>> = tasks.lock().await;
+                                    
+                                    match received_task.status.as_str() {
+                                        "create" => {
+                                            println!("create field detected");
+                                            let mut task_id: tokio::sync::MutexGuard<usize> = task_id.lock().await;
+                                            *task_id += 1;
+                                            received_task.id = *task_id;
+                                            tasks.insert(received_task.id, received_task.clone());
+                                        }
+                                        "update" => {
+                                            println!("update field detected");
+                                            if tasks.contains_key(&received_task.id) {
+                                                tasks.insert(received_task.id, received_task.clone());
+                                            }
+                                        }
+                                        "delete" => {
+                                            println!("delete field detected");
+                                            tasks.remove(&received_task.id);
+                                        }
+                                        _ => {}
+                                    }
+                                    if let Ok(serialized_task) = serde_json::to_string(&received_task) {
+                                        for client in clients.lock().await.values_mut() {
+                                            if let Err(e) = client.send(Message::Text(serialized_task.clone())).await {
+                                                eprintln!("Error sending message to client: {:?}", e);
+                                            }
+                                        }
+                                    }
+                                } else {
+                                    // Handle the case where the text cannot be deserialized into a Task object
+                                    println!("Received invalid JSON: {}", text);
+                                }
+                            }
+                            _ => {
+                                if let Ok(printable_msg) = serde_json::from_str::<PrintableMessage>(&msg.to_string()) {
+                                    println!("Received a printable message: {:?}", printable_msg);
+                                } else {
+                                    println!("Received non-text message");
+                                }
+                                // Handle other message types if needed
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error receiving message: {:?}", e);
+                        break;
+                    }
+                }
+            }
+            
+            
+            let mut clients: tokio::sync::MutexGuard<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>> = clients.lock().await;
+            clients.remove(&client_id);
+        });
+    }
+}
+*/
+
+
+
+/*
+STATUS: 1 err: error[E0599]: no method named `lock` found for struct `tokio::sync::MutexGuard<'_, HashMap<usize, Task>>` in the current scope
+    --> learning/src/main.rs:6346:55
+     |
+6346 | ...                   let mut tasks = tasks.lock().await;
+     |                                             ^^^^ private field, not a method
+
+For more information about this error, try `rustc --explain E0599`
+*/
+/*
+use futures_util::stream::{SplitSink, SplitStream};
+use futures_util::{SinkExt, StreamExt};
+use rand::Rng;
+use std::collections::HashMap;
+use std::sync::Arc;
+use tokio::sync::{broadcast, Mutex};
+use tokio::net::TcpListener;
+use tokio_tungstenite::{accept_async, tungstenite::protocol::Message};
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Task {
+    id: usize,
+    text: String,
+    status: String,
+}
+
+#[tokio::main]
+async fn main() {
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind");
+    let clients: Arc<Mutex<HashMap<usize, SplitSink<tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, Message>>>> = Arc::new(Mutex::new(HashMap::new()));
+    let tasks: Arc<Mutex<HashMap<usize, Task>>> = Arc::new(Mutex::new(HashMap::new()));
+    let task_id = Arc::new(Mutex::new(0));
+    let (sender, _) = broadcast::channel(10); // Create a broadcast channel
+
+    loop {
+        let (stream, _) = listener.accept().await.expect("Failed to accept");
+        let clients = Arc::clone(&clients);
+        let tasks = Arc::clone(&tasks);
+        let task_id = Arc::clone(&task_id);
+        let sender = sender.clone(); // Clone the sender for each new connection
+
+        tokio::spawn(async move {
+            let ws_stream = accept_async(stream).await.expect("Error during WebSocket handshake");
+            let (sink, mut stream) = ws_stream.split();
+            let mut client_id = 0;
+
+            {
+                let mut clients = clients.lock().await;
+                client_id = clients.len() + 1;
+                clients.insert(client_id, sink);
+            }
+
+            // Send current tasks to the newly connected client
+            let tasks = tasks.lock().await;
+            for task in tasks.values() {
+                if let Ok(serialized_task) = serde_json::to_string(&task) {
+                    if let Some(mut client) = clients.lock().await.get_mut(&client_id) {
+                        if let Err(e) = client.send(Message::Text(serialized_task)).await {
+                            eprintln!("Error sending message to client: {:?}", e);
+                        }
+                    }
+                }
+            }
+
+            while let Some(msg) = stream.next().await {
+                match msg {
+                    Ok(msg) => {
+                        if let Message::Text(text) = msg {
+                            if let Ok(mut received_task) = serde_json::from_str::<Task>(&text) {
+                                let mut tasks = tasks.lock().await;
+                                match received_task.status.as_str() {
+                                    "create" => {
+                                        let mut task_id = task_id.lock().await;
+                                        *task_id += 1;
+                                        received_task.id = *task_id;
+                                        tasks.insert(received_task.id, received_task.clone());
+                                    }
+                                    "update" => {
+                                        if let Some(existing_task) = tasks.get_mut(&received_task.id) {
+                                            existing_task.text = received_task.text.clone();
+                                            existing_task.status = received_task.status.clone();
+                                        }
+                                    }
+                                    "delete" => {
+                                        tasks.remove(&received_task.id);
+                                    }
+                                    _ => {}
+                                }
+                                
+                                // Broadcast the updated task list to all clients
+                                let _ = sender.send(received_task.clone());
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Error receiving message: {:?}", e);
+                        break;
+                    }
+                }
+            }
+
+            let mut clients = clients.lock().await;
+            clients.remove(&client_id);
+        });
+
+        // Listen for task updates and broadcast them to all clients
+        let receiver = sender.subscribe();
+        tokio::spawn(async move {
+            while let Ok(updated_task) = receiver.recv().await {
+                let tasks = tasks.lock().await;
+                let serialized_task = serde_json::to_string(&updated_task).unwrap();
+                for client in clients.lock().await.values_mut() {
+                    if let Err(e) = client.send(Message::Text(serialized_task.clone())).await {
+                        eprintln!("Error broadcasting task update to client: {:?}", e);
+                    }
+                }
+            }
+        });
+    }
+}
+*/
+
+
+
+
+/*
+// random number generate
+// status: worked
+use rand::Rng;
+use tokio_tungstenite::tungstenite::Message;
+use std::sync::Arc;
+use tokio::net::TcpListener;
+use tokio::sync::{broadcast, Mutex};
+use tokio_tungstenite::accept_async;
+use futures::SinkExt;   // fix error: no method named `send` found for struct `SplitSink` in the current scope
+// use tungstenite::protocol::Message;
+
+#[tokio::main]
+async fn main() {
+    // Create a TCP listener
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.unwrap();
+    println!("Server running on {}", addr);
+
+    // Create a broadcast channel to send messages to all clients
+    let (tx, _) = broadcast::channel::<Message>(10);
+    let tx = Arc::new(Mutex::new(tx));
+
+    loop {
+        let (stream, peer_socket_addr) = listener.accept().await.unwrap();
+        println!("accepted a connection from {}", peer_socket_addr);
+        let tx = Arc::clone(&tx);
+        
+        // Spawn a new task for each incoming connection
+        tokio::spawn(handle_connection(stream, tx));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream, tx: Arc<Mutex<broadcast::Sender<Message>>>) {
+    let ws_stream = accept_async(stream)
+        .await
+        .expect("Error during websocket handshake");
+
+    let (mut write, _) = futures::StreamExt::split(ws_stream);
+
+    // Clone the broadcast sender to be used in this connection
+    let tx = Arc::clone(&tx);
+
+    // Spawn a task to continuously send random numbers to this client
+    tokio::spawn(async move {
+        loop {
+            /*
+            // send just a number: eg. 443
+            let random_number = rand::thread_rng().gen_range(100..=1000);
+            let message = Message::Text(random_number.to_string());
+            
+            // Send the random number to this client
+            if let Err(_) = write.send(message.clone()).await {
+                // If sending fails, the client has disconnected, so break out of the loop
+                break;
+            }
+            */
+            // send json format: eg. {"number":443}
+            let random_number = rand::thread_rng().gen_range(1000..=10000);
+            let json_message = serde_json::json!({"number": random_number});
+            let message = Message::Text(json_message.to_string());
+            
+            // Send the JSON message to this client
+            if let Err(_) = write.send(message.clone()).await {
+                // If sending fails, the client has disconnected, so break out of the loop
+                break;
+            }
+
+            // Broadcast the message to all connected clients
+            let mut tx = tx.lock().await;
+
+            match tx.send(message.clone()) {
+                Ok(bytes) => {} // ignore if succeeded
+                // Err(err) => println!("err sending to connected clients: {:?}", err)
+                Err(_) => {}    // ignore if fails
+            }
+            
+            // Delay for a short interval before sending the next message
+            // Or just no delay needed
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    });
+}
+*/
+
+
+
+/*
+// random color hex code
+use futures::StreamExt; // for ws_stream.split();
+use futures::SinkExt;   // for write.send(message.clone()).await
+use rand::Rng;
+use serde_json::{json, Value};
+use tokio_tungstenite::tungstenite::Message;
+// use std::sync::{Arc, Mutex}; // => error: future cannot be sent between threads safely
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::net::TcpListener;
+use tokio::sync::broadcast;
+use tokio_tungstenite::accept_async;
+
+#[tokio::main]
+async fn main() {
+    // Create a TCP listener
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.unwrap();
+    println!("Server running on {}", addr);
+
+    // Create a broadcast channel to send messages to all clients
+    let (tx, _) = broadcast::channel::<Message>(10);
+    let tx = Arc::new(Mutex::new(tx));
+
+    loop {
+        let (stream, peer_socket_addr) = listener.accept().await.unwrap();
+        println!("accepted a connection from: {}", peer_socket_addr);
+        let tx = Arc::clone(&tx);
+        
+        // Spawn a new task for each incoming connection
+        tokio::spawn(handle_connection(stream, tx));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream, tx: Arc<Mutex<broadcast::Sender<Message>>>) {
+    let ws_stream = accept_async(stream)
+        .await
+        .expect("Error during websocket handshake");
+
+    let (mut write, _) = ws_stream.split();
+
+    // Clone the broadcast sender to be used in this connection
+    let tx = Arc::clone(&tx);
+
+    // Spawn a task to continuously send random color hex codes to this client
+    tokio::spawn(async move {
+        loop {
+            let random_color = generate_random_color();
+            let json_message = json!({"color": random_color});
+            let message = Message::Text(json_message.to_string());
+            
+            // Send the JSON message to this client
+            if let Err(_) = write.send(message.clone()).await {
+                // If sending fails, the client has disconnected, so break out of the loop
+                break;
+            }
+
+            // Broadcast the message to all connected clients
+            let mut tx = tx.lock().await;
+
+            // tx.send(message.clone()).unwrap();
+            match tx.send(message.clone()) {
+                Ok(_) => {} // ignore if succeeded
+                Err(err) => println!("err sending to connected clients: {:?}", err)
+            };
+
+            // match tx.send(message.clone()) {
+            //     Ok(_) => {} // ignore if succeeded
+            //     Err(broadcast::error::SendError::Closed(_)) => {
+            //         // The receiver has been closed, likely due to client disconnection
+            //         println!("Failed to send message: channel closed");
+            //     }
+            //     Err(broadcast::error::SendError::Lagged(_)) => {
+            //         // The message could not be sent because the receiver is lagged
+            //         println!("Failed to send message: channel lagged");
+            //     }
+            // };
+            
+            // Delay for a short interval before sending the next message
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    });
+}
+
+fn generate_random_color() -> String {
+    let mut rng = rand::thread_rng();
+    let r: u8 = rng.gen_range(0..=255);
+    let g: u8 = rng.gen_range(0..=255);
+    let b: u8 = rng.gen_range(0..=255);
+    format!("{:02X}{:02X}{:02X}", r, g, b)
+}
+*/
+
+
+
+
+// try to fix the mismatch issue of different messages sent to different connected clients.
+/*
+use futures::StreamExt; // for ws_stream.split();
+use futures::SinkExt;   // for write.send(message.clone()).await
+use rand::Rng;
+use serde_json::{json, Value};
+use tokio_tungstenite::tungstenite::Message;
+// use std::sync::{Arc, Mutex}; // => error: future cannot be sent between threads safely
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::net::TcpListener;
+use tokio::sync::broadcast;
+use tokio_tungstenite::accept_async;
+
+#[tokio::main]
+async fn main() {
+    // Create a TCP listener
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.expect("Failed to bind address");
+    println!("Server running on {}", addr);
+
+    // Create a broadcast channel to send messages to all clients
+    let (tx, _) = broadcast::channel::<Message>(10);
+    let tx = Arc::new(Mutex::new(tx));
+
+    loop {
+        let (stream, _) = listener.accept().await.expect("Failed to accept connection");
+        let tx = Arc::clone(&tx);
+        
+        // Spawn a new task for each incoming connection
+        tokio::spawn(handle_connection(stream, tx));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream, tx: Arc<Mutex<broadcast::Sender<Message>>>) {
+    let ws_stream = accept_async(stream)
+        .await
+        .expect("Error during websocket handshake");
+
+    let (mut write, _) = ws_stream.split();
+
+    // Clone the broadcast sender to be used in this connection
+    let tx = Arc::clone(&tx);
+
+    // Spawn a task to continuously send random color hex codes to this client
+    tokio::spawn(async move {
+        loop {
+            let random_color = generate_random_color();
+            let json_message = json!({"color": random_color});
+            let message = Message::Text(json_message.to_string());
+            
+            // Broadcast the message to all connected clients
+            let mut tx = tx.lock().await;
+            match tx.send(message.clone()) {
+                Ok(_) => {} // ignore if succeeded
+                Err(broadcast::error::SendError::Closed(_)) => {
+                    // The receiver has been closed, likely due to client disconnection
+                    println!("Failed to send message: channel closed");
+                }
+                Err(broadcast::error::SendError::Lagged(_)) => {
+                    // The message could not be sent because the receiver is lagged
+                    println!("Failed to send message: channel lagged");
+                }
+            };
+            
+            // Delay for a short interval before sending the next message
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+}
+
+fn generate_random_color() -> String {
+    let mut rng = rand::thread_rng();
+    let r: u8 = rng.gen_range(0..=255);
+    let g: u8 = rng.gen_range(0..=255);
+    let b: u8 = rng.gen_range(0..=255);
+    format!("{:02X}{:02X}{:02X}", r, g, b)
+}
+*/
+
+
+
+
+/*
+// future cannot be sent between threads safely
+use tokio::net::TcpListener;
+use tokio::sync::Mutex;
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use futures_util::StreamExt;
+use futures_util::SinkExt;
+use std::sync::Arc;
+use rand::Rng;
+use std::time::Duration;
+
+type Tx = tokio::sync::mpsc::UnboundedSender<Message>;
+type PeerList = Arc<Mutex<Vec<Tx>>>;
+
+async fn handle_connection(peer_list: PeerList, stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>) {
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    {
+        let mut peers = peer_list.lock().await;
+        peers.push(tx);
+    }
+
+    let (mut ws_sender, mut ws_receiver) = stream.split();
+
+    let send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if ws_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let receive_task = tokio::spawn(async move {
+        while ws_receiver.next().await.is_some() {}
+    });
+
+    tokio::select! {
+        _ = send_task => {}
+        _ = receive_task => {}
+    }
+
+    let mut peers = peer_list.lock().await;
+    if let Some(index) = peers.iter().position(|x| x.is_closed()) {
+        peers.remove(index);
+    }
+}
+
+async fn broadcast_random_numbers(peer_list: PeerList) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+    let mut rng = rand::thread_rng();
+
+    loop {
+        interval.tick().await;
+        let number = rng.gen_range(1..=10);
+        let message = Message::text(number.to_string());
+
+        let peers = peer_list.lock().await;
+        for tx in peers.iter() {
+            let _ = tx.send(message.clone());
+        }
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let peer_list: PeerList = Arc::new(Mutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:8080").await.expect("Failed to bind");
+
+    let peer_list_clone = peer_list.clone();
+    tokio::spawn(async move {
+        broadcast_random_numbers(peer_list_clone).await;
+    });
+
+    while let Ok((stream, _)) = listener.accept().await {
+        let peer_list_clone = peer_list.clone();
+        tokio::spawn(async move {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                handle_connection(peer_list_clone, ws_stream).await;
+            }
+        });
+    }
+}
+*/
+
+
+
+
+/*
+// fixed "future cannot be sent between threads safely"
+// explanatory: 
+use tokio::net::TcpListener;
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use futures_util::StreamExt;
+use futures_util::SinkExt;
+use std::sync::Arc;
+use std::time::Duration;
+use rand::Rng;
+
+
+type Tx = mpsc::UnboundedSender<Message>;
+type PeerList = Arc<Mutex<Vec<Tx>>>;
+
+async fn handle_connection(peer_list: PeerList, stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut peers = peer_list.lock().await;
+        peers.push(tx);
+    }
+
+    let (mut ws_sender, mut ws_receiver) = stream.split();
+
+    let send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if ws_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let receive_task = tokio::spawn(async move {
+        while ws_receiver.next().await.is_some() {}
+    });
+
+    tokio::select! {
+        _ = send_task => {}
+        _ = receive_task => {}
+    }
+
+    let mut peers = peer_list.lock().await;
+    if let Some(index) = peers.iter().position(|x| x.is_closed()) {
+        peers.remove(index);
+    }
+}
+
+async fn broadcast_random_numbers(peer_list: PeerList, mut number_rx: mpsc::UnboundedReceiver<i32>) {
+    while let Some(number) = number_rx.recv().await {
+        let message = Message::text(number.to_string());
+
+        let peers = peer_list.lock().await;
+        for tx in peers.iter() {
+            let _ = tx.send(message.clone());
+        }
+    }
+}
+
+async fn generate_random_numbers(number_tx: mpsc::UnboundedSender<i32>) {
+    let mut interval = tokio::time::interval(Duration::from_secs(1));
+
+    loop {
+        interval.tick().await;
+        let number = rand::thread_rng().gen_range(1..=10);
+        let _ = number_tx.send(number);
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let peer_list: PeerList = Arc::new(Mutex::new(Vec::new()));
+    let listener = TcpListener::bind("127.0.0.1:8080").await.expect("Failed to bind");
+
+    let (number_tx, number_rx) = mpsc::unbounded_channel();
+    let peer_list_clone = peer_list.clone();
+
+    tokio::spawn(async move {
+        generate_random_numbers(number_tx).await;
+    });
+
+    tokio::spawn(async move {
+        broadcast_random_numbers(peer_list_clone, number_rx).await;
+    });
+
+    while let Ok((stream, _)) = listener.accept().await {
+        let peer_list_clone = peer_list.clone();
+        tokio::spawn(async move {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                handle_connection(peer_list_clone, ws_stream).await;
+            }
+        });
+    }
+}
+*/
+
+
+
+// STATUS: worked flawlessly
+// features: broadcast generated number, clients connection/disconnection event
+use tokio::net::TcpListener;
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use futures_util::StreamExt;
+use futures_util::SinkExt;
+use std::sync::Arc;
+use std::time::Duration;
+use rand::Rng;
+
+type Tx = mpsc::UnboundedSender<Message>;
+type PeerList = Arc<Mutex<Vec<Tx>>>;
+
+async fn handle_connection(peer_list: PeerList, stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, peer_addr: std::net::SocketAddr) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        peers.push(tx.clone());
+        broadcast_client_count(&peers).await;
+        println!("Client connected: {}", peer_addr);
+        println!("Current peers: {}", peers.len());
+    }
+
+    let (mut ws_sender, mut ws_receiver) = stream.split();
+
+    let send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if ws_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let receive_task: tokio::task::JoinHandle<()> = tokio::spawn(async move {
+        while ws_receiver.next().await.is_some() {}
+    });
+
+    tokio::select! {
+        _ = send_task => {}
+        _ = receive_task => {}
+    }
+
+    {
+        let mut peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        if let Some(index) = peers.iter().position(|peer_tx| peer_tx.same_channel(&tx)) {
+            peers.remove(index);
+            broadcast_client_count(&peers).await;
+            println!("Client disconnected: {}", peer_addr);
+            println!("Current peers: {}", peers.len());
+        }
+    }
+}
+
+async fn broadcast_random_numbers(peer_list: PeerList, mut number_rx: mpsc::UnboundedReceiver<i32>) {
+    while let Some(number) = number_rx.recv().await {
+        // let message = Message::text(number.to_string());
+        let json_message = serde_json::json!({"number": number.to_string()});
+        let message = Message::Text(json_message.to_string());
+
+        let peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        for tx in peers.iter() {
+            let _ = tx.send(message.clone());
+        }
+    }
+}
+
+async fn generate_random_numbers(number_tx: mpsc::UnboundedSender<i32>) {
+    // delay interval
+    let mut interval: tokio::time::Interval = tokio::time::interval(Duration::from_millis(100));
+
+    loop {
+        interval.tick().await;
+        let number = rand::thread_rng().gen_range(1..=10);
+        let _ = number_tx.send(number);
+    }
+}
+
+async fn broadcast_client_count(peers: &Vec<Tx>) {
+    // let count_message = Message::text(format!("Connected clients: {}", peers.len()));
+    let json_message = serde_json::json!({"connectedClientsCount": peers.len()});
+    let count_message = Message::Text(json_message.to_string());
+    for tx in peers.iter() {
+        let _ = tx.send(count_message.clone());
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let peer_list: PeerList = Arc::new(Mutex::new(Vec::new()));
+    // only this machine can access ws://127.0.0.1:8080
+    let listener = TcpListener::bind("127.0.0.1:8080").await.expect("Failed to bind");
+
+
+    // expose to local network: ws://192.168.1.11:8080 (depends on your network)
+    // let listener = TcpListener::bind("192.168.1.11:8080").await.expect("Failed to bind");
+
+    // In HCMUE's C502 network:
+    // thread 'main' panicked at learning/src/main.rs:7037:65:
+    // Failed to bind: Os { code: 49, kind: AddrNotAvailable, message: "Can't assign requested address" }
+
+
+    let (number_tx, number_rx) = mpsc::unbounded_channel();
+    let peer_list_clone: Arc<Mutex<Vec<mpsc::UnboundedSender<Message>>>> = peer_list.clone();
+
+    tokio::spawn(async move {
+        generate_random_numbers(number_tx).await;
+    });
+
+    tokio::spawn(async move {
+        broadcast_random_numbers(peer_list_clone, number_rx).await;
+    });
+
+    while let Ok((stream, addr)) = listener.accept().await {
+        let peer_list_clone = peer_list.clone();
+        tokio::spawn(async move {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                handle_connection(peer_list_clone, ws_stream, addr).await;
+            }
+        });
+    }
+}
