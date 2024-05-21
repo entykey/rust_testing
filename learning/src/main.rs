@@ -6945,6 +6945,7 @@ async fn main() {
 
 // STATUS: worked flawlessly
 // features: broadcast generated number, clients connection/disconnection event
+/*
 use tokio::net::TcpListener;
 use tokio::sync::{mpsc, Mutex};
 use tokio_tungstenite::accept_async;
@@ -7066,3 +7067,222 @@ async fn main() {
         });
     }
 }
+*/
+
+
+
+
+/*
+// status: worked
+// let's modify this to broadcast random hex color code instead of just 1-10 numbers
+// features: broadcast generated hex color codes, clients connection/disconnection event
+use tokio::net::TcpListener;
+use tokio::sync::{mpsc, Mutex};
+use tokio_tungstenite::accept_async;
+use tokio_tungstenite::tungstenite::protocol::Message;
+use futures_util::StreamExt;
+use futures_util::SinkExt;
+use std::sync::Arc;
+use std::time::Duration;
+use rand::Rng;
+
+type Tx = mpsc::UnboundedSender<Message>;
+type PeerList = Arc<Mutex<Vec<Tx>>>;
+
+async fn handle_connection(peer_list: PeerList, stream: tokio_tungstenite::WebSocketStream<tokio::net::TcpStream>, peer_addr: std::net::SocketAddr) {
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        peers.push(tx.clone());
+        broadcast_client_count(&peers).await;
+        println!("Client connected: {}", peer_addr);
+        println!("Current peers: {}", peers.len());
+    }
+
+    let (mut ws_sender, mut ws_receiver) = stream.split();
+
+    let send_task = tokio::spawn(async move {
+        while let Some(message) = rx.recv().await {
+            if ws_sender.send(message).await.is_err() {
+                break;
+            }
+        }
+    });
+
+    let receive_task: tokio::task::JoinHandle<()> = tokio::spawn(async move {
+        while ws_receiver.next().await.is_some() {}
+    });
+
+    tokio::select! {
+        _ = send_task => {}
+        _ = receive_task => {}
+    }
+
+    {
+        let mut peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        if let Some(index) = peers.iter().position(|peer_tx| peer_tx.same_channel(&tx)) {
+            peers.remove(index);
+            broadcast_client_count(&peers).await;
+            println!("Client disconnected: {}", peer_addr);
+            println!("Current peers: {}", peers.len());
+        }
+    }
+}
+
+async fn broadcast_random_color_hex(peer_list: PeerList, mut color_rx: mpsc::UnboundedReceiver<String>) {
+    while let Some(color_code) = color_rx.recv().await {
+        let json_message = serde_json::json!({"color": color_code});
+        let message = Message::Text(json_message.to_string());
+
+        let peers: tokio::sync::MutexGuard<Vec<mpsc::UnboundedSender<Message>>> = peer_list.lock().await;
+        for tx in peers.iter() {
+            let _ = tx.send(message.clone());
+        }
+    }
+}
+
+async fn broadcast_client_count(peers: &Vec<Tx>) {
+    // let count_message = Message::text(format!("Connected clients: {}", peers.len()));
+    let json_message = serde_json::json!({"connectedClientsCount": peers.len()});
+    let count_message = Message::Text(json_message.to_string());
+    for tx in peers.iter() {
+        let _ = tx.send(count_message.clone());
+    }
+}
+
+#[tokio::main]
+async fn main() {
+    let peer_list: PeerList = Arc::new(Mutex::new(Vec::new()));
+    // only this machine can access ws://127.0.0.1:8080
+    let listener = TcpListener::bind("127.0.0.1:8080").await.expect("Failed to bind");
+
+
+    // expose to local network: ws://192.168.1.11:8080 (depends on your network)
+    // let listener = TcpListener::bind("192.168.1.11:8080").await.expect("Failed to bind");
+
+    // In HCMUE's C502 network:
+    // thread 'main' panicked at learning/src/main.rs:7037:65:
+    // Failed to bind: Os { code: 49, kind: AddrNotAvailable, message: "Can't assign requested address" }
+
+
+    let (number_tx, number_rx) = mpsc::unbounded_channel();
+    let peer_list_clone: Arc<Mutex<Vec<mpsc::UnboundedSender<Message>>>> = peer_list.clone();
+
+    tokio::spawn(async move {
+        generate_random_color(number_tx).await;
+    });
+
+    tokio::spawn(async move {
+        broadcast_random_color_hex(peer_list_clone, number_rx).await;
+    });
+
+    while let Ok((stream, addr)) = listener.accept().await {
+        let peer_list_clone = peer_list.clone();
+        tokio::spawn(async move {
+            if let Ok(ws_stream) = accept_async(stream).await {
+                handle_connection(peer_list_clone, ws_stream, addr).await;
+            }
+        });
+    }
+}
+
+async fn generate_random_color(number_tx: mpsc::UnboundedSender<String>) {
+    let mut interval: tokio::time::Interval = tokio::time::interval(Duration::from_millis(500));
+
+    loop {
+        interval.tick().await;
+        let mut rng = rand::thread_rng();
+        let r: u8 = rng.gen_range(0..=255);
+        let g: u8 = rng.gen_range(0..=255);
+        let b: u8 = rng.gen_range(0..=255);
+        let result = format!("{:02X}{:02X}{:02X}", r, g, b);
+        let _ = number_tx.send(result);
+    }
+}
+*/
+
+
+//*
+// not synchronized & still sending after all clients disconnected. err sending...
+// Err: " err sending to connected clients: SendError(Text("{\"color\":\"3C2390\"}")) "
+// random color hex code
+use futures::StreamExt; // for ws_stream.split();
+use futures::SinkExt;   // for write.send(message.clone()).await
+use rand::Rng;
+use serde_json::{json, Value};
+use tokio_tungstenite::tungstenite::Message;
+// use std::sync::{Arc, Mutex}; // => error: future cannot be sent between threads safely
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::net::TcpListener;
+use tokio::sync::broadcast;
+use tokio_tungstenite::accept_async;
+
+
+#[tokio::main]
+async fn main() {
+    // Create a TCP listener
+    let addr = "127.0.0.1:8080";
+    let listener = TcpListener::bind(addr).await.unwrap();
+    println!("Server running on {}", addr);
+
+    // Create a broadcast channel to send messages to all clients
+    let (tx, _) = broadcast::channel::<Message>(10);
+    let tx = Arc::new(Mutex::new(tx));
+
+    loop {
+        let (stream, peer_socket_addr) = listener.accept().await.unwrap();
+        println!("accepted a connection from: {}", peer_socket_addr);
+        let tx = Arc::clone(&tx);
+        
+        // Spawn a new task for each incoming connection
+        tokio::spawn(handle_connection(stream, tx));
+    }
+}
+
+async fn handle_connection(stream: tokio::net::TcpStream, tx: Arc<Mutex<broadcast::Sender<Message>>>) {
+    let ws_stream = accept_async(stream)
+        .await
+        .expect("Error during websocket handshake");
+
+    let (mut write, _) = ws_stream.split();
+
+    // Clone the broadcast sender to be used in this connection
+    let tx = Arc::clone(&tx);
+
+    // Spawn a task to continuously send random color hex codes to this client
+    tokio::spawn(async move {
+        loop {
+            let random_color = generate_random_color();
+            let json_message = json!({"color": random_color});
+            let message = Message::Text(json_message.to_string());
+            
+            // Send the JSON message to this client
+            if let Err(_) = write.send(message.clone()).await {
+                // If sending fails, the client has disconnected, so break out of the loop
+                break;
+            }
+
+            // Broadcast the message to all connected clients
+            let mut tx = tx.lock().await;
+
+            // tx.send(message.clone()).unwrap();
+            match tx.send(message.clone()) {
+                Ok(_) => {} // ignore if succeeded
+                Err(err) => println!("err sending to connected clients: {:?}", err)
+            };
+            
+            // Delay for a short interval before sending the next message
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+        }
+    });
+}
+
+fn generate_random_color() -> String {
+    let mut rng = rand::thread_rng();
+    let r: u8 = rng.gen_range(0..=255);
+    let g: u8 = rng.gen_range(0..=255);
+    let b: u8 = rng.gen_range(0..=255);
+    format!("{:02X}{:02X}{:02X}", r, g, b)
+}
+//*/
