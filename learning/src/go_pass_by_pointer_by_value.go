@@ -1,30 +1,52 @@
-// a Rust example for this Go code
 /*
+Lời khuyên khi dùng Go
+- Dùng con trỏ (*T) khi:
+
+	+ Cần thay đổi giá trị gốc.
+
+	+ Struct lớn (tránh sao chép tốn bộ nhớ).
+
+- Dùng giá trị (T) khi:
+
+	+ Không muốn thay đổi dữ liệu gốc (immutable).
+
+	+ Struct nhỏ hoặc muốn đảm bảo an toàn goroutine.
+*/
+
+package main
+
+import "fmt"
+
 type User struct {
-    Name string
+	Name string
 }
 
-// func updateName(u *User, newName string) {  // truyền bằng con trỏ
-//     u.Name = newName // Thay đổi giá trị gốc
-// }
+func updateName(u *User, newName string) { // truyền bằng con trỏ
+	u.Name = newName // Thay đổi giá trị gốc
+}
 
-func updateName(u User, newName string) { // Truyền bằng giá trị
-    u.Name = newName    // Thay đổi giá trị trên bản sao, không ảnh hưởng đến bản gốc
+func updateNameClone(u User, newName string) { // Truyền bằng giá trị
+	// when u param is passed as a value, this func create a clone of it
+	u.Name = newName // Thay đổi giá trị trên bản sao, không ảnh hưởng đến bản gốc
 }
 
 func main() {
-    user := User{Name: "Alice"}
-    updateName(&user, "Bob") // Truyền con trỏ
-    fmt.Println(user.Name)  // Output: "Bob"
-} 
-*/
+	user := User{Name: "Alice"}
+	updateName(&user, "Tuanhayho") // Truyền con trỏ
+	fmt.Println(user.Name)         // Output: "Tuanhayho"
 
+	updateNameClone(user, "Bob") // Truyền giá trị
+	fmt.Println(user.Name)       // Output vẫn là "Tuanhayho"
+}
+
+// a Rust example for this Go code
 /*
 Output:
 Original: User { name: "Alice" }
 Updated (func): User { name: "Bob" }
 Updated (method): User { name: "Charlie" }
 */
+/*
 #[derive(Debug, Clone)]
 pub struct User {
     pub name: String,
@@ -55,3 +77,4 @@ fn main() {
     println!("Updated (func): {:?}", updated_user); // User { name: "Bob" }
     println!("Updated (method): {:?}", updated_user2); // User { name: "Charlie" }
 }
+*/
